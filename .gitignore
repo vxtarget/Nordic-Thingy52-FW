@@ -1,0 +1,7 @@
+RTE
+_build
+/project/JLinkLog.txt
+/project/JLinkSettings.ini
+/project/*.scvd
+/project/*.bak
+/project/ble_nfc.uvguix.*
