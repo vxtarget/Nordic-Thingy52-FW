@@ -719,23 +719,6 @@ static void advertising_init(void)
     ble_advertising_conn_cfg_tag_set(&m_advertising, APP_BLE_CONN_CFG_TAG);
 }
 
-
-/**@brief Function for initializing buttons and leds.
- *
- * @param[out] p_erase_bonds  Will be true if the clear bonding button was pressed to wake the application up.
- */
-static void buttons_leds_init(bool * p_erase_bonds)
-{
-    bsp_event_t startup_event;
-
-    uint32_t err_code = bsp_init(BSP_INIT_LEDS | BSP_INIT_BUTTONS, bsp_event_handler);
-    APP_ERROR_CHECK(err_code);
-
-    err_code = bsp_btn_ble_init(NULL, &startup_event);
-    APP_ERROR_CHECK(err_code);
-
-    *p_erase_bonds = (startup_event == BSP_EVENT_CLEAR_BONDING_DATA);
-}
 //static void gpio_init(void)
 //{
 //		uint32_t i=0;
@@ -829,7 +812,6 @@ static void advertising_start(void)
  */
 int main(void)
 {
-    bool erase_bonds;
 		//
 		//system_init();
 
@@ -838,8 +820,7 @@ int main(void)
     log_init();
 	//定时器初始化,按键消抖,系统定时用户创建定时任务等
     timers_init();
-	//外设LED按键等初始化
-    //buttons_leds_init(&erase_bonds);
+
 	//电源管理初始化
     power_management_init();
 	//BLE协议栈初始化，使能softdevice,协议栈参数
