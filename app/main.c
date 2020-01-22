@@ -69,6 +69,8 @@
 #include "bsp_btn_ble.h"
 #include "nrf_pwr_mgmt.h"
 #include "nrf_delay.h"
+#include "sys_battery.h"
+#include "ble_dis.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -87,6 +89,14 @@
 
 #define DEVICE_NAME                     "dhz_uart"                               /**< Name of device. Will be included in the advertising data. */
 #define NUS_SERVICE_UUID_TYPE           BLE_UUID_TYPE_VENDOR_BEGIN                  /**< UUID type for the Nordic UART Service (vendor specific). */
+
+#define MANUFACTURER_NAME								"甯佷俊"
+#define MODEL_NUMBER										"one"
+#define MANUFACTURER_ID                 0x55AA55AA55                                /**< DUMMY Manufacturer ID. Will be passed to Device Information Service. You shall use the ID for your Company*/
+#define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
+#define HW_REVISION						"1.0.0"
+#define FW_REVISION						"s132_nrf52_7.0.1"
+#define SW_REVISION						"1.0.0"
 
 #define APP_BLE_OBSERVER_PRIO           3                                           /**< Application's BLE observer priority. You shouldn't need to modify this value. */
 
@@ -118,7 +128,8 @@ static uint16_t   m_ble_nus_max_data_len = BLE_GATT_ATT_MTU_DEFAULT - 3;        
 static ble_uuid_t m_adv_uuids[]          =                                          /**< Universally unique service identifier. */
 {
     {BLE_UUID_NUS_SERVICE, NUS_SERVICE_UUID_TYPE},
-    {BLE_UUID_BATTERY_SERVICE,BLE_UUID_TYPE_BLE}
+    {BLE_UUID_BATTERY_SERVICE,BLE_UUID_TYPE_BLE},
+		{BLE_UUID_DEVICE_INFORMATION_SERVICE, BLE_UUID_TYPE_BLE}
 };
 
 uint8_t uart_recived_flag=0;
@@ -265,8 +276,29 @@ static void services_init(void)
     nrf_ble_qwr_init_t qwr_init = {0};
 
 #if BLE_BAS_ENABLED
-	bas_init();
+		bas_init();
 #endif
+#if BLE_DIS_ENABLED
+		ble_dis_init_t     dis_init;
+		// Initialize Device Information Service.
+    memset(&dis_init, 0, sizeof(dis_init));
+
+    ble_srv_ascii_to_utf8(&dis_init.manufact_name_str, MANUFACTURER_NAME);
+    ble_srv_ascii_to_utf8(&dis_init.serial_num_str, MODEL_NUMBER);
+	ble_srv_ascii_to_utf8(&dis_init.hw_rev_str,HW_REVISION);
+	ble_srv_ascii_to_utf8(&dis_init.fw_rev_str,FW_REVISION);
+	ble_srv_ascii_to_utf8(&dis_init.sw_rev_str,SW_REVISION);
+
+    ble_dis_sys_id_t system_id;
+    system_id.manufacturer_id            = MANUFACTURER_ID;
+    system_id.organizationally_unique_id = ORG_UNIQUE_ID;
+    dis_init.p_sys_id                    = &system_id;
+
+    dis_init.dis_char_rd_sec = SEC_OPEN;
+
+    err_code = ble_dis_init(&dis_init);
+    APP_ERROR_CHECK(err_code);
+#endif		
     // Initialize Queued Write Module.
     //初始化排队写入模块
     //队列写入事件处理函数
