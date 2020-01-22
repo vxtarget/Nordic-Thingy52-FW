@@ -117,7 +117,8 @@ static uint16_t   m_conn_handle          = BLE_CONN_HANDLE_INVALID;             
 static uint16_t   m_ble_nus_max_data_len = BLE_GATT_ATT_MTU_DEFAULT - 3;            /**< Maximum length of data (in bytes) that can be transmitted to the peer by the Nordic UART service module. */
 static ble_uuid_t m_adv_uuids[]          =                                          /**< Universally unique service identifier. */
 {
-    {BLE_UUID_NUS_SERVICE, NUS_SERVICE_UUID_TYPE}
+    {BLE_UUID_NUS_SERVICE, NUS_SERVICE_UUID_TYPE},
+    {BLE_UUID_BATTERY_SERVICE,BLE_UUID_TYPE_BLE}
 };
 
 uint8_t uart_recived_flag=0;
@@ -263,6 +264,9 @@ static void services_init(void)
     ble_nus_init_t     nus_init;
     nrf_ble_qwr_init_t qwr_init = {0};
 
+#if BLE_BAS_ENABLED
+	bas_init();
+#endif
     // Initialize Queued Write Module.
     //初始化排队写入模块
     //队列写入事件处理函数
