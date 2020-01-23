@@ -98,6 +98,10 @@ extern "C" {
 #define BATTERY_PG_STA_PIN	19
 #define BATTERY_ADC_PIN	5
 
+#define USB_INS_PIN        8
+#define ST_SCL_PIN         27
+#define ST_SDA_PIN         28
+
 #define bt_power_on()		nrf_gpio_pin_set(BT_POWER_CTL_PIN)
 #define bt_power_off()	nrf_gpio_pin_clear(BT_POWER_CTL_PIN)
 #define stm32_power_on()	nrf_gpio_pin_set(STM_POWER_CTL_PIN)

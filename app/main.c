@@ -71,6 +71,7 @@
 #include "nrf_delay.h"
 #include "sys_battery.h"
 #include "ble_dis.h"
+#include "sys_dfu.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -182,7 +183,9 @@ static void gap_params_init(void)
     APP_ERROR_CHECK(err_code);
 
 	//如果需要设置外观特征,在此处设置
-
+    //err_code = sd_ble_gap_appearance_set(BLE_APPEARANCE_UNKNOWN);
+    //APP_ERROR_CHECK(err_code);
+																					
     memset(&gap_conn_params, 0, sizeof(gap_conn_params));
 
 	//PPCP首选连接参数
@@ -274,6 +277,23 @@ static void services_init(void)
     uint32_t           err_code;
     ble_nus_init_t     nus_init;
     nrf_ble_qwr_init_t qwr_init = {0};
+	
+    // Initialize Queued Write Module.
+    //初始化排队写入模块
+    //队列写入事件处理函数
+    qwr_init.error_handler = nrf_qwr_error_handler;
+
+    err_code = nrf_ble_qwr_init(&m_qwr, &qwr_init);
+    APP_ERROR_CHECK(err_code);
+
+#if BLE_DFU_ENABLED
+    ble_dfu_buttonless_init_t dfus_init = {0};
+
+    dfus_init.evt_handler = ble_dfu_evt_handler;
+
+    err_code = ble_dfu_buttonless_init(&dfus_init);
+    APP_ERROR_CHECK(err_code);
+#endif
 
 #if BLE_BAS_ENABLED
 		bas_init();
@@ -285,9 +305,9 @@ static void services_init(void)
 
     ble_srv_ascii_to_utf8(&dis_init.manufact_name_str, MANUFACTURER_NAME);
     ble_srv_ascii_to_utf8(&dis_init.serial_num_str, MODEL_NUMBER);
-	ble_srv_ascii_to_utf8(&dis_init.hw_rev_str,HW_REVISION);
-	ble_srv_ascii_to_utf8(&dis_init.fw_rev_str,FW_REVISION);
-	ble_srv_ascii_to_utf8(&dis_init.sw_rev_str,SW_REVISION);
+    ble_srv_ascii_to_utf8(&dis_init.hw_rev_str,HW_REVISION);
+    ble_srv_ascii_to_utf8(&dis_init.fw_rev_str,FW_REVISION);
+    ble_srv_ascii_to_utf8(&dis_init.sw_rev_str,SW_REVISION);
 
     ble_dis_sys_id_t system_id;
     system_id.manufacturer_id            = MANUFACTURER_ID;
@@ -298,15 +318,7 @@ static void services_init(void)
 
     err_code = ble_dis_init(&dis_init);
     APP_ERROR_CHECK(err_code);
-#endif		
-    // Initialize Queued Write Module.
-    //初始化排队写入模块
-    //队列写入事件处理函数
-    qwr_init.error_handler = nrf_qwr_error_handler;
-
-    err_code = nrf_ble_qwr_init(&m_qwr, &qwr_init);
-    APP_ERROR_CHECK(err_code);
-
+#endif	
     // Initialize NUS.
     memset(&nus_init, 0, sizeof(nus_init));
 
@@ -794,10 +806,16 @@ static void advertising_init(void)
 //		stm32_power_off();
 //		bt_power_off();		
 //}
-//static void system_init()
-//{ 
-//		gpio_init();
-//}
+static void gpio_init(void)
+{
+		//Detect USB insert status.
+    nrf_gpio_cfg_input(USB_INS_PIN,NRF_GPIO_PIN_NOPULL);
+}
+static void system_init()
+{ 
+    gpio_init();
+    
+}
 /**@brief Function for initializing the nrf log module.
  */
 static void log_init(void)
@@ -848,12 +866,16 @@ static void advertising_start(void)
  */
 int main(void)
 {
-		//
-		//system_init();
-
     // Initialize.
+		system_init();
+
     uart_init();
     log_init();
+#if BLE_DFU_ENABLED
+    // Initialize the async SVCI interface to bootloader before any interrupts are enabled.
+    err_code = ble_dfu_buttonless_async_svci_init();
+    APP_ERROR_CHECK(err_code);
+#endif	
 	//定时器初始化,按键消抖,系统定时用户创建定时任务等
     timers_init();
 
