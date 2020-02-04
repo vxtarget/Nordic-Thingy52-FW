@@ -1257,30 +1257,38 @@ static __INLINE uint8_t battery_level_in_percent(const uint16_t mvolts)
 {
     uint8_t battery_level;
 
-    if (mvolts >= 3000)
-    {
-        battery_level = 100;
-    }
-    else if (mvolts > 2900)
-    {
-        battery_level = 100 - ((3000 - mvolts) * 58) / 100;
-    }
-    else if (mvolts > 2740)
-    {
-        battery_level = 42 - ((2900 - mvolts) * 24) / 160;
-    }
-    else if (mvolts > 2440)
-    {
-        battery_level = 18 - ((2740 - mvolts) * 12) / 300;
-    }
-    else if (mvolts > 2100)
-    {
-        battery_level = 6 - ((2440 - mvolts) * 6) / 340;
-    }
-    else
-    {
-        battery_level = 0;
-    }
+	if(mvolts>1000)//
+	{
+		battery_level = 100;
+	}
+	else if(mvolts>987)//3.95
+	{
+		 battery_level = 80;
+	}
+	else if(mvolts>962)//3.85
+	{
+		 battery_level = 60;
+	}
+	else if(mvolts>925)//3.7
+	{
+		battery_level = 50;
+	}
+	else if(mvolts>900)//3.6
+	{
+		battery_level = 40;
+	}
+	else if(mvolts>875)//3.5
+	{
+		battery_level = 30;
+	}
+	else if(mvolts>870)//3.48
+	{
+		battery_level = 20;
+	}
+	else
+	{
+		battery_level = 10;
+	}
 
     return battery_level;
 }

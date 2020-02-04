@@ -118,7 +118,6 @@
 #define UART_TX_BUF_SIZE                256                                         /**< UART TX buffer size. */
 #define UART_RX_BUF_SIZE                256                                         /**< UART RX buffer size. */
 
-
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
 NRF_BLE_GATT_DEF(m_gatt);                                                           /**< GATT module instance. */
 NRF_BLE_QWR_DEF(m_qwr);                                                             /**< Context for the Queued Write module.*/
@@ -156,10 +155,14 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
  */
 static void timers_init(void)
 {
+     ret_code_t err_code;
+	 
 	//初始化app定时器模块
-    ret_code_t err_code = app_timer_init();
+    err_code = app_timer_init();
 	//检测返回值
-    APP_ERROR_CHECK(err_code);
+    APP_ERROR_CHECK(err_code);	
+
+	bas_timer_init();
 }
 
 /**@brief Function for the GAP initialization.
@@ -296,7 +299,7 @@ static void services_init(void)
 #endif
 
 #if BLE_BAS_ENABLED
-		bas_init();
+    bas_init();
 #endif
 #if BLE_DIS_ENABLED
 		ble_dis_init_t     dis_init;
@@ -814,7 +817,6 @@ static void gpio_init(void)
 static void system_init()
 { 
     gpio_init();
-    
 }
 /**@brief Function for initializing the nrf log module.
  */
@@ -867,7 +869,7 @@ static void advertising_start(void)
 int main(void)
 {
     // Initialize.
-		system_init();
+    system_init();
 
     uart_init();
     log_init();
