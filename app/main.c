@@ -71,7 +71,6 @@
 #include "nrf_delay.h"
 #include "sys_battery.h"
 #include "ble_dis.h"
-#include "sys_dfu.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
