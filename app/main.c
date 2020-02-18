@@ -146,10 +146,6 @@ NRF_BLE_QWR_DEF(m_qwr);                                                         
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
 
-uint8_t uart_recived_flag=0;
-uint8_t uart_recived_buf[1024];
-uint32_t uart_recived_len=0;
-
 static uint8_t mac_ascii[24];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 uint8_t ble_adv_name[BLENAMELEN+6] = "BixinKEY123456" ; 
@@ -541,15 +537,15 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 
         NRF_LOG_DEBUG("Received data from BLE NUS. Writing data on UART.");
         NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
-				memcpy(uart_recived_buf,p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
-				uart_recived_flag=1;
-				uart_recived_len=p_evt->params.rx_data.length;
+				memcpy(data_recived_buf,p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
+				data_recived_flag=true;
+				data_recived_len=p_evt->params.rx_data.length;
 
 				//Send data
  				do
         {
-            uint16_t length = (uint16_t)uart_recived_len;
-            err_code = ble_nus_data_send(&m_nus, uart_recived_buf, &length, m_conn_handle);
+            uint16_t length = (uint16_t)data_recived_len;
+            err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
             if ((err_code != NRF_ERROR_INVALID_STATE) &&
                 (err_code != NRF_ERROR_RESOURCES) &&
                 (err_code != NRF_ERROR_NOT_FOUND))
@@ -986,6 +982,7 @@ static void gpio_init(void)
 {
     //Detect USB insert status.
     nrf_gpio_cfg_input(USB_INS_PIN,NRF_GPIO_PIN_NOPULL);
+		nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
 }
 static void system_init()
 { 
@@ -1054,6 +1051,7 @@ int main(void)
 	//Æô¶¯¹ã²¥
     advertising_start(false);
 		
+		twi_master_init();
     nfc_init();
 
     // Enter main loop.

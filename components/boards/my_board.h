@@ -99,8 +99,12 @@ extern "C" {
 #define BATTERY_ADC_PIN	5
 
 #define USB_INS_PIN        8
-#define ST_SCL_PIN         27
-#define ST_SDA_PIN         28
+//TWI
+#define TWI_STATUS_GPIO 25
+#define MASTER_TWI_INST     0       //!< TWI interface used as a master accessing EEPROM memory.
+#define TWI_SCL_M           27       //!< Master SCL pin.
+#define TWI_SDA_M           26       //!< Master SDA pin.
+#define SLAVE_ADDR 0x48
 
 #define bt_power_on()		nrf_gpio_pin_set(BT_POWER_CTL_PIN)
 #define bt_power_off()	nrf_gpio_pin_clear(BT_POWER_CTL_PIN)
@@ -109,10 +113,8 @@ extern "C" {
 
 //end HaoBTC
 
-//#define RX_PIN_NUMBER  14
-//#define TX_PIN_NUMBER  15
-#define RX_PIN_NUMBER  27
-#define TX_PIN_NUMBER  26
+#define RX_PIN_NUMBER  14
+#define TX_PIN_NUMBER  15
 #define CTS_PIN_NUMBER UART_PIN_DISCONNECTED
 #define RTS_PIN_NUMBER UART_PIN_DISCONNECTED
 #define HWFC           false
