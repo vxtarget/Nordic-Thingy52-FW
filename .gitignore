@@ -6,4 +6,5 @@ _build
 /project/*.bak
 /project/ble_nfc.uvguix.*
 /dfu/_build
+/dfu/secure_bootloader_ble_s132_pca10040.uvguix.*
 
