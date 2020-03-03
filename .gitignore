@@ -5,3 +5,5 @@ _build
 /project/*.scvd
 /project/*.bak
 /project/ble_nfc.uvguix.*
+/dfu/_build
+
