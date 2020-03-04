@@ -83,6 +83,9 @@
 #include "app_uart.h"
 #include "nfc.h"
 #include "my_board.h"
+#include "app_scheduler.h"
+
+#include "nrf_delay.h"
 
 #define NAME_ADDR                       0x30000
 #define NAMETK_LEN                      18
@@ -96,11 +99,31 @@
 #define FW_REVISION                     "s132_nrf52_7.0.1"
 #define SW_REVISION                     "1.0.0"
 
+#define APDU_TAG_BLE                    0x44
+
+#define BLE_DEFAULT                     0
+#define BLE_CONNECT                     1
+#define BLE_DISCONNECT                  2
+#define BLE_DIS_PIN                     3
+#define BLE_PIN_ERR                     4
+#define BLE_PIN_TIMEOUT                 5
+#define BLE_PAIR_SUCCESS                6
+#define BLE_PIN_CANCEL                  7
+#define BLE_RCV_DATA                    8
+#define BLE_SEND_I2C_DATA               9
+#define BLE_READ_I2C_HEAD               10
+#define BLE_READ_I2C_DATA               11
+
+
 #define APP_BLE_OBSERVER_PRIO           3                                           /**< Application's BLE observer priority. You shouldn't need to modify this value. */
 #define APP_BLE_CONN_CFG_TAG            1                                           /**< A tag identifying the SoftDevice BLE configuration. */
 
 #define APP_ADV_INTERVAL                40                                          /**< The advertising interval (in units of 0.625 ms. This value corresponds to 25 ms). */
 #define APP_ADV_DURATION                18000                                       /**< The advertising duration (180 seconds) in units of 10 milliseconds. */
+
+	// SCHEDULER CONFIGS
+#define SCHED_MAX_EVENT_DATA_SIZE       64             //!< Maximum size of the scheduler event data.
+#define SCHED_QUEUE_SIZE                20                                          //!< Size of the scheduler queue.
 
 #define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(3000)                      /**< Battery level measurement interval (ticks). */
 #define MIN_BATTERY_LEVEL               81                                          /**< Minimum battery level as returned by the simulated measurement function. */
@@ -113,7 +136,10 @@
 #define CONN_SUP_TIMEOUT                MSEC_TO_UNITS(4000, UNIT_10_MS)             /**< Connection supervisory timeout (4 seconds). */
 #define FIRST_CONN_PARAMS_UPDATE_DELAY  APP_TIMER_TICKS(5000)                       /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
 #define NEXT_CONN_PARAMS_UPDATE_DELAY   APP_TIMER_TICKS(30000)                      /**< Time between each call to sd_ble_gap_conn_param_update after the first call (30 seconds). */
-#define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(3000)
+#define ON_SECOND_INTERVAL              APP_TIMER_TICKS(1000)
+
+#define RST_ONE_SECNOD_COUNTER()        one_second_counter = 0;
+#define TWI_TIMEOUT_COUNTER             10
 
 #define MAX_CONN_PARAM_UPDATE_COUNT     3                                           /**< Number of attempts before giving up the connection parameter negotiation. */
 
@@ -145,7 +171,10 @@ NRF_BLE_GATT_DEF(m_gatt);                                                       
 NRF_BLE_QWR_DEF(m_qwr);                                                             /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
+APP_TIMER_DEF(m_1second_timer_id);
 
+static uint8_t one_second_counter=0;
+static uint8_t ble_evt_flag = BLE_DEFAULT;
 static uint8_t mac_ascii[24];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 uint8_t ble_adv_name[BLENAMELEN+6] = "BixinKEY123456" ; 
@@ -219,6 +248,17 @@ void battery_level_meas_timeout_handler(void *p_context)
     ret_code_t err_code;
     err_code =  nrf_drv_saadc_sample();
     APP_ERROR_CHECK(err_code);
+}
+
+void one_second_timeout_hander(void * p_context)
+{
+    UNUSED_PARAMETER(p_context);
+
+	one_second_counter++;
+	if(one_second_counter >=20)
+	{
+        one_second_counter=0;
+	}
 }
 
 /**@brief Function for configuring ADC to do battery level conversion.
@@ -433,9 +473,26 @@ static void timers_init(void)
                                 APP_TIMER_MODE_REPEATED,
                                 battery_level_meas_timeout_handler);
     APP_ERROR_CHECK(err_code);
+
+	//Create 1s timer.
+	err_code = app_timer_create(&m_1second_timer_id,
+								APP_TIMER_MODE_REPEATED,
+								one_second_timeout_hander);
+    APP_ERROR_CHECK(err_code);
 }
 
-
+static ret_code_t check_twi_timeout(void)
+{
+    if(one_second_counter>=TWI_TIMEOUT_COUNTER)
+    {
+        RST_ONE_SECNOD_COUNTER();
+		return false;
+	}
+	else
+	{
+        return true;
+	}
+}
 /**@brief Function for the GAP initialization.
  *
  * @details This function sets up all the necessary GAP (Generic Access Profile) parameters of the
@@ -533,16 +590,69 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
-        uint32_t err_code;
+//        uint32_t err_code;
+        uint32_t msg_len,data_len;
+		
+        //NRF_LOG_INFO("Received data from BLE NUS.");
+        //NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+        memcpy(data_recived_buf,p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
+        data_recived_len=p_evt->params.rx_data.length;
+		
+        if(data_recived_len<9)
+            return;
+		
+        msg_len=(uint32_t)((data_recived_buf[5] << 24) + 
+                           (data_recived_buf[6] << 16) + 
+                           (data_recived_buf[7] << 8) + 
+                           (data_recived_buf[8]));
+        if(0 == msg_len)
+        {
+            data_len = 9;
+        }else
+        {
+            data_len=msg_len+9;
+        }
+        
+        if(data_recived_buf[0] == '?' || data_recived_buf[1] == '#' || data_recived_buf[2] == '#')
+        {
+            if(data_len>=9)
+            {                
+                if(data_len == (msg_len +9))
+                {        
+                    data_recived_flag = false;                                        
+                    ble_evt_flag = BLE_RCV_DATA;
+                }	
+            }	
+        }
+		
+		#if 0
+		//read
+		uint32_t count=6000;
+		uint8_t flag=0;
+		while(1)
+		{   
+		    if(0 == flag)
+		    {
+	 		    if(0 == nrf_gpio_pin_read(TWI_STATUS_GPIO))//can read
+	 		    {
+	 		        i2c_master_read();
+					flag = 1;
+	 		    }	
+		    }
+			else
+			{
+			   if(true == data_recived_flag)
+			   {
+				   break;
+			   }
 
-        NRF_LOG_DEBUG("Received data from BLE NUS. Writing data on UART.");
-        NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
-				memcpy(data_recived_buf,p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
-				data_recived_flag=true;
-				data_recived_len=p_evt->params.rx_data.length;
-
-				//Send data
- 				do
+			}
+	       
+        }			
+	     #endif    	
+#if 0
+        //Send data
+        do
         {
             uint16_t length = (uint16_t)data_recived_len;
             err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
@@ -553,23 +663,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 APP_ERROR_CHECK(err_code);
             }
         } while (err_code == NRF_ERROR_RESOURCES);
-//        for (uint32_t i = 0; i < p_evt->params.rx_data.length; i++)
-//        {
-        	//添加自己的接收处理函数
-//            do
-//            {
-//                err_code = app_uart_put(p_evt->params.rx_data.p_data[i]);
-//                if ((err_code != NRF_SUCCESS) && (err_code != NRF_ERROR_BUSY))
-//                {
-//                    NRF_LOG_ERROR("Failed receiving NUS message. Error 0x%x. ", err_code);
-//                    APP_ERROR_CHECK(err_code);
-//                }
-//            } while (err_code == NRF_ERROR_BUSY);
-//        }
-        if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length - 1] == '\r')
-        {
-            while (app_uart_put('\n') == NRF_ERROR_BUSY);
-        }
+#endif				
     }
 
 }
@@ -626,11 +720,11 @@ static void services_init(void)
  */
 static void application_timers_start(void)
 {
-    //ret_code_t err_code;
+    ret_code_t err_code;
 
     // Start application timers.
-    //err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
-    //APP_ERROR_CHECK(err_code);
+    err_code = app_timer_start(m_1second_timer_id, ON_SECOND_INTERVAL, NULL);
+    APP_ERROR_CHECK(err_code);
 }
 
 
@@ -764,9 +858,11 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_CONNECTED:
         {
             NRF_LOG_INFO("Connected");
+			ble_evt_flag = BLE_CONNECT;
+			
             m_peer_to_be_deleted = PM_PEER_ID_INVALID;
-            err_code = bsp_indication_set(BSP_INDICATE_CONNECTED);
-            APP_ERROR_CHECK(err_code);
+            //err_code = bsp_indication_set(BSP_INDICATE_CONNECTED);
+            //APP_ERROR_CHECK(err_code);
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
             APP_ERROR_CHECK(err_code);
@@ -809,6 +905,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         {
             char passkey[PASSKEY_LENGTH + 1];
             memcpy(passkey, p_ble_evt->evt.gap_evt.params.passkey_display.passkey, PASSKEY_LENGTH);
+			memcpy(&data_recived_buf[4],passkey,PASSKEY_LENGTH);
             passkey[PASSKEY_LENGTH] = 0;
 
             NRF_LOG_INFO("Passkey: %s", nrf_log_push(passkey));
@@ -960,6 +1057,68 @@ static void power_management_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static void twi_write_data(void *p_event_data,uint16_t event_size)
+{
+    if(BLE_RCV_DATA == ble_evt_flag)
+    {
+        i2c_master_write(data_recived_buf,data_recived_len);
+		ble_evt_flag = BLE_SEND_I2C_DATA;
+		RST_ONE_SECNOD_COUNTER();
+	}
+}
+
+static void twi_read_data(void *p_event_data,uint16_t event_size)
+{
+	ret_code_t err_code;
+	
+#if 1	
+    if(BLE_SEND_I2C_DATA == ble_evt_flag)
+    {
+        if(false == check_twi_timeout())
+        {
+            ble_evt_flag = BLE_DEFAULT;
+			return;
+		}
+        //nrf_delay_ms(30);
+        if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==0)//can read
+        {
+            //nrf_delay_ms(30);
+            i2c_master_read();			
+            ble_evt_flag = BLE_READ_I2C_HEAD;
+		    RST_ONE_SECNOD_COUNTER();
+        }
+    }
+	
+    if(BLE_READ_I2C_HEAD == ble_evt_flag)
+    {
+        if(false == check_twi_timeout())
+        {
+            ble_evt_flag = BLE_DEFAULT;
+			return;
+		}
+        if(true == data_recived_flag)
+        {
+            ble_evt_flag = BLE_READ_I2C_DATA;
+            //Send data
+            do
+            {
+                uint16_t length = (uint16_t)data_recived_len;
+                err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
+                if ((err_code != NRF_ERROR_INVALID_STATE) &&
+                    (err_code != NRF_ERROR_RESOURCES) &&
+                    (err_code != NRF_ERROR_NOT_FOUND))
+                {
+                    APP_ERROR_CHECK(err_code);
+                }
+            } while (err_code == NRF_ERROR_RESOURCES);
+            ble_evt_flag = BLE_DEFAULT;
+			RST_ONE_SECNOD_COUNTER();
+        }
+    }
+  
+#endif	
+}
+
 
 /**@brief Function for handling the idle state (main loop).
  *
@@ -969,6 +1128,7 @@ static void idle_state_handle(void)
 {
     ret_code_t err_code;
 
+	app_sched_execute();
     err_code = nrf_ble_lesc_request_handler();
     APP_ERROR_CHECK(err_code);
 
@@ -982,7 +1142,7 @@ static void gpio_init(void)
 {
     //Detect USB insert status.
     nrf_gpio_cfg_input(USB_INS_PIN,NRF_GPIO_PIN_NOPULL);
-		nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
+    nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
 }
 static void system_init()
 { 
@@ -1006,21 +1166,26 @@ static void advertising_start(bool erase_bonds)
     }
 }
 
+static void scheduler_init(void)
+{
+    APP_SCHED_INIT(SCHED_MAX_EVENT_DATA_SIZE, SCHED_QUEUE_SIZE);
+}
 
+static void main_loop(void)
+{   
+	app_sched_event_put(NULL,NULL,twi_write_data);
+    app_sched_event_put(NULL,NULL,twi_read_data);
+}
 /**@brief Application main function.
  */
 int main(void)
 {
     // Initialize.
     system_init();
-
+    scheduler_init();
     //uart_init();
     log_init();
-#if BLE_DFU_ENABLED
-    // Initialize the async SVCI interface to bootloader before any interrupts are enabled.
-    err_code = ble_dfu_buttonless_async_svci_init();
-    APP_ERROR_CHECK(err_code);
-#endif	
+
 	//定时器初始化,按键消抖,系统定时用户创建定时任务等
     timers_init();
 
@@ -1051,13 +1216,13 @@ int main(void)
 	//启动广播
     advertising_start(false);
 		
-		twi_master_init();
+	twi_master_init();
     nfc_init();
 
     // Enter main loop.
     for (;;)
     {
-    	//空闲处理函数，包含日志和电源管理
+        main_loop();
         idle_state_handle();
     }
 }
