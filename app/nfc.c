@@ -203,12 +203,29 @@ int twi_master_init(void)
 bool i2c_master_write(uint8_t *buf,uint32_t len)
 {
 	ret_code_t err_code;
+	uint32_t offset = 0;
 	
+	twi_xfer_dir = 0;
 	twi_xfer_done = false;
 	
-	err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,buf,len,false);
-	twi_xfer_dir = 0;
-	//while(twi_xfer_done == false);
+	if(len <= 255)
+	{
+		err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,buf,len,false);
+	}
+	else
+	{		
+		while(len > 255)
+		{
+			err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,buf+offset,255,true);
+			while(twi_xfer_done == false);
+			twi_xfer_done = false;
+			offset += 255;
+			len -= 255;
+		}
+		err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,buf+offset,len,false);
+	}
+	
+	while(twi_xfer_done == false);
 	if(NRF_SUCCESS != err_code)
 	{
 		return false;
@@ -217,6 +234,7 @@ bool i2c_master_write(uint8_t *buf,uint32_t len)
 //	data_recived_len= 0;
 //	nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf,3);//read 3 bytes header
 	return true;
+
 }
 
 bool i2c_master_read(void)
