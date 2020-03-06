@@ -173,6 +173,7 @@ BLE_ADVERTISING_DEF(m_advertising);                                             
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
 APP_TIMER_DEF(m_1second_timer_id);
 
+static uint16_t all_data_len=0;
 static uint8_t one_second_counter=0;
 static uint8_t ble_evt_flag = BLE_DEFAULT;
 static uint8_t mac_ascii[24];
@@ -483,6 +484,7 @@ static void timers_init(void)
 
 static ret_code_t check_twi_timeout(void)
 {
+#if 0
     if(one_second_counter>=TWI_TIMEOUT_COUNTER)
     {
         RST_ONE_SECNOD_COUNTER();
@@ -492,6 +494,9 @@ static ret_code_t check_twi_timeout(void)
 	{
         return true;
 	}
+#else	
+	return true;
+#endif
 }
 /**@brief Function for the GAP initialization.
  *
@@ -590,66 +595,88 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
-//        uint32_t err_code;
-        uint32_t msg_len,data_len;
+//        uint32_t err_code;        
+        uint32_t msg_len;
+        static uint16_t index=0;
 		
         //NRF_LOG_INFO("Received data from BLE NUS.");
         //NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
-        memcpy(data_recived_buf,p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
-        data_recived_len=p_evt->params.rx_data.length;
-		
-        if(data_recived_len<9)
-            return;
-		
-        msg_len=(uint32_t)((data_recived_buf[5] << 24) + 
-                           (data_recived_buf[6] << 16) + 
-                           (data_recived_buf[7] << 8) + 
-                           (data_recived_buf[8]));
-        if(0 == msg_len)
-        {
-            data_len = 9;
-        }else
-        {
-            data_len=msg_len+9;
-        }
-        
-        if(data_recived_buf[0] == '?' || data_recived_buf[1] == '#' || data_recived_buf[2] == '#')
-        {
-            if(data_len>=9)
-            {                
-                if(data_len == (msg_len +9))
-                {        
-                    data_recived_flag = false;                                        
-                    ble_evt_flag = BLE_RCV_DATA;
-                }	
-            }	
-        }
-		
-		#if 0
-		//read
-		uint32_t count=6000;
-		uint8_t flag=0;
-		while(1)
-		{   
-		    if(0 == flag)
-		    {
-	 		    if(0 == nrf_gpio_pin_read(TWI_STATUS_GPIO))//can read
-	 		    {
-	 		        i2c_master_read();
-					flag = 1;
-	 		    }	
-		    }
-			else
-			{
-			   if(true == data_recived_flag)
-			   {
-				   break;
-			   }
+        memcpy(&data_recived_buf[index],p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
+        data_recived_len=p_evt->params.rx_data.length;		      
 
-			}
-	       
-        }			
-	     #endif    	
+        if(0 == all_data_len)
+        {
+            if(data_recived_len<9)
+            {
+                return;
+            }
+			
+           msg_len=(uint32_t)((data_recived_buf[5] << 24) + 
+							   (data_recived_buf[6] << 16) + 
+							   (data_recived_buf[7] << 8) + 
+							   (data_recived_buf[8]));
+		
+	        if(0 == msg_len)
+	        {
+	            all_data_len = data_recived_len;
+	            index = 0;
+	        }
+            else
+	        {
+	            all_data_len=msg_len+9;
+                if(all_data_len<=64)
+                {
+                    all_data_len=data_recived_len;
+                }				
+	        }
+		   //
+	        if(all_data_len == data_recived_len)
+	        {
+	            if(data_recived_buf[0] == '?' || data_recived_buf[1] == '#' || data_recived_buf[2] == '#')
+	            {
+                    data_recived_flag = false;										  
+                    ble_evt_flag = BLE_RCV_DATA;
+                    index = 0;
+                    return;
+                }				
+	        }
+	        else if(all_data_len>data_recived_len)
+	        {
+	             if(data_recived_buf[0] != '?' || data_recived_buf[1] != '#' || data_recived_buf[2] != '#')
+	             {
+                     all_data_len = 0;
+                     index = 0;
+                     return;
+                 }
+	             index += data_recived_len;
+	        }
+	        else
+	        {
+                all_data_len = 0;
+                index = 0;
+                return;
+            }
+		}
+		else
+		{					
+	        if(all_data_len>index+data_recived_len)
+	        {
+	            index += data_recived_len;
+	        }
+	        else if(all_data_len == index+data_recived_len)
+	        {
+	            data_recived_flag = false;
+	            ble_evt_flag = BLE_RCV_DATA;
+                index = 0;
+                return;
+	        }
+	        else
+	        {
+	             all_data_len = 0;
+	             index = 0;
+	        }
+    }	
+        
 #if 0
         //Send data
         do
@@ -667,6 +694,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
     }
 
 }
+
 /**@brief Function for initializing services that will be used by the application.
  *
  * @details Initialize the Glucose, Battery and Device Information services.
@@ -1061,10 +1089,11 @@ static void twi_write_data(void *p_event_data,uint16_t event_size)
 {
     if(BLE_RCV_DATA == ble_evt_flag)
     {
-        i2c_master_write(data_recived_buf,data_recived_len);
-		ble_evt_flag = BLE_SEND_I2C_DATA;
-		RST_ONE_SECNOD_COUNTER();
-	}
+        i2c_master_write(data_recived_buf,all_data_len);
+        all_data_len = 0;
+        ble_evt_flag = BLE_SEND_I2C_DATA;
+        RST_ONE_SECNOD_COUNTER();
+    }
 }
 
 static void twi_read_data(void *p_event_data,uint16_t event_size)
@@ -1077,8 +1106,8 @@ static void twi_read_data(void *p_event_data,uint16_t event_size)
         if(false == check_twi_timeout())
         {
             ble_evt_flag = BLE_DEFAULT;
-			return;
-		}
+            return;
+        }
         //nrf_delay_ms(30);
         if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==0)//can read
         {
