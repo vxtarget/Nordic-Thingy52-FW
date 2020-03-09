@@ -62,7 +62,7 @@
 
 #include "nfc.h"
 
-#define MAX_APDU_LEN      0xF0   /**< Maximal APDU length, Adafruit limitation. */
+#define MAX_APDU_LEN      1024   /**< Maximal APDU length, Adafruit limitation. */
 //#define HEADER_FIELD_SIZE 1      /**< Header field size. */
 #define HEADER_FIELD_SIZE 0				 /**< no header */	
 
@@ -81,6 +81,7 @@ static app_fifo_t m_nfc_rx_fifo; /**< FIFO instance for data that is received fr
 static app_fifo_t m_nfc_tx_fifo; /**< FIFO instance for data that will be transmitted over NFC. */
 
 static void apdu_command(void);
+bool apdu_cmd =false;
 
 /**
  * @brief Callback function for handling UART errors.
@@ -185,7 +186,7 @@ int twi_master_init(void)
     {
        .scl                = TWI_SCL_M,
        .sda                = TWI_SDA_M,
-       .frequency          = NRF_DRV_TWI_FREQ_100K,
+       .frequency          = NRF_DRV_TWI_FREQ_400K,
        .interrupt_priority = APP_IRQ_PRIORITY_HIGH,
        .clear_bus_init     = false
     };
@@ -329,7 +330,7 @@ static void nfc_callback(void          * context,
                 // Store data in NFC RX FIFO if payload is present.
                 if (apdu_len > HEADER_FIELD_SIZE)
                 {
-                    NRF_LOG_DEBUG("NFC RX data length: %d", apdu_len);
+                    NRF_LOG_INFO("NFC RX data length: %d", apdu_len);
                     uint32_t buff_size;
 
                     apdu_len -= HEADER_FIELD_SIZE;
@@ -340,7 +341,8 @@ static void nfc_callback(void          * context,
                     if ((buff_size != apdu_len) || (err_code == NRF_ERROR_NO_MEM))
                     {
                         NRF_LOG_WARNING("NFC RX FIFO buffer overflow");
-                    }
+                    }							
+										//NRF_LOG_HEXDUMP_INFO(apdu_buf,apdu_len);
                 }
                 apdu_len = 0;
 								
@@ -356,9 +358,11 @@ static void nfc_callback(void          * context,
 
                 if (resp_len > 0)
                 {
-                    NRF_LOG_DEBUG("NFC TX data length: %d", resp_len);
+                    NRF_LOG_INFO("NFC TX data length: %d", resp_len);
 										// Send the response PDU over NFC.
 										err_code = nfc_t4t_response_pdu_send(apdu_buf, resp_len + HEADER_FIELD_SIZE);
+										
+										NRF_LOG_INFO("NFC TX data err_code: %d", err_code);
 										APP_ERROR_CHECK(err_code);
                 }                
 
@@ -469,7 +473,7 @@ static void apdu_command(void)
 		
 		data_len=sizeof(nfc_data_buf);
 		app_fifo_read(&m_nfc_rx_fifo,nfc_data_buf,&data_len);
-
+		nfc_data_len = data_len;
 		if(nfc_data_buf[0] == '?' || nfc_data_buf[1] == '#' || nfc_data_buf[2] == '#')
 		{
 			if(data_len>=9)
@@ -481,7 +485,8 @@ static void apdu_command(void)
 					//usart
 					//app_uart_send(nfc_data_buf, data_len);
 					//i2c
-					i2c_master_write(nfc_data_buf,data_len);
+					apdu_cmd = true;
+					//i2c_master_write(nfc_data_buf,data_len);
 					data_len = 3;
 					app_fifo_flush(&m_nfc_tx_fifo);		
 					app_fifo_write(&m_nfc_tx_fifo,"#**",&data_len);	
@@ -528,5 +533,15 @@ static void apdu_command(void)
 			app_fifo_write(&m_nfc_tx_fifo,"\x6D\x00",&data_len);
 		}
 		
+}
+
+void nfc_poll(void)
+{
+		if(apdu_cmd == true)
+		{
+			apdu_cmd = false;
+			NRF_LOG_INFO("twi trans");
+			i2c_master_write(nfc_data_buf,nfc_data_len);
+		}
 }
 /** @} */

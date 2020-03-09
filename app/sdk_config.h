@@ -4056,7 +4056,7 @@
 // <7=> 7 
 
 #ifndef NRFX_TWIM_DEFAULT_CONFIG_IRQ_PRIORITY
-#define NRFX_TWIM_DEFAULT_CONFIG_IRQ_PRIORITY 6
+#define NRFX_TWIM_DEFAULT_CONFIG_IRQ_PRIORITY 7
 #endif
 
 // <e> NRFX_TWIM_CONFIG_LOG_ENABLED - Enables logging in the module.
@@ -4286,7 +4286,7 @@
 // <104857600=> 400k 
 
 #ifndef NRFX_TWI_DEFAULT_CONFIG_FREQUENCY
-#define NRFX_TWI_DEFAULT_CONFIG_FREQUENCY 26738688
+#define NRFX_TWI_DEFAULT_CONFIG_FREQUENCY 104857600
 #endif
 
 // <q> NRFX_TWI_DEFAULT_CONFIG_HOLD_BUS_UNINIT  - Enables bus holding after uninit
@@ -4308,7 +4308,7 @@
 // <7=> 7 
 
 #ifndef NRFX_TWI_DEFAULT_CONFIG_IRQ_PRIORITY
-#define NRFX_TWI_DEFAULT_CONFIG_IRQ_PRIORITY 6
+#define NRFX_TWI_DEFAULT_CONFIG_IRQ_PRIORITY 7
 #endif
 
 // <e> NRFX_TWI_CONFIG_LOG_ENABLED - Enables logging in the module.
@@ -5811,7 +5811,7 @@
  
 
 #ifndef TWI0_USE_EASY_DMA
-#define TWI0_USE_EASY_DMA 1
+#define TWI0_USE_EASY_DMA 	1
 #endif
 
 // </e>
@@ -11222,7 +11222,7 @@
 
 // <o> APDU_BUFF_SIZE - Size (in bytes) of the buffer for APDU storage 
 #ifndef APDU_BUFF_SIZE
-#define APDU_BUFF_SIZE 250
+#define APDU_BUFF_SIZE 1024
 #endif
 
 // <o> CC_STORAGE_BUFF_SIZE - Size (in bytes) of the buffer for CC file storage 

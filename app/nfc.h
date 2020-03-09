@@ -16,5 +16,5 @@ bool i2c_master_read(void);
 
 int nfc_init(void);
 int twi_master_init(void);
-
+void nfc_poll(void);
 #endif
