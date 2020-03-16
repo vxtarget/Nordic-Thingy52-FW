@@ -84,6 +84,7 @@
 #include "nfc.h"
 #include "my_board.h"
 #include "app_scheduler.h"
+#include "nrf_drv_gpiote.h"
 
 #include "nrf_delay.h"
 
@@ -171,11 +172,10 @@ NRF_BLE_GATT_DEF(m_gatt);                                                       
 NRF_BLE_QWR_DEF(m_qwr);                                                             /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
-APP_TIMER_DEF(m_1second_timer_id);
 
 static uint16_t all_data_len=0;
 static uint8_t one_second_counter=0;
-static uint8_t ble_evt_flag = BLE_DEFAULT;
+static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
 static uint8_t mac_ascii[24];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 uint8_t ble_adv_name[BLENAMELEN+6] = "BixinKEY123456" ; 
@@ -196,7 +196,8 @@ static ble_uuid_t   m_adv_uuids[] =                                             
 };
 
 static void advertising_start(bool erase_bonds);
-
+//static void twi_write_data(void *p_event_data,uint16_t event_size);
+static void twi_write_data(void);
 
 /**@brief Function for assert macro callback.
  *
@@ -474,30 +475,8 @@ static void timers_init(void)
                                 APP_TIMER_MODE_REPEATED,
                                 battery_level_meas_timeout_handler);
     APP_ERROR_CHECK(err_code);
-
-	//Create 1s timer.
-	err_code = app_timer_create(&m_1second_timer_id,
-								APP_TIMER_MODE_REPEATED,
-								one_second_timeout_hander);
-    APP_ERROR_CHECK(err_code);
 }
 
-static ret_code_t check_twi_timeout(void)
-{
-#if 0
-    if(one_second_counter>=TWI_TIMEOUT_COUNTER)
-    {
-        RST_ONE_SECNOD_COUNTER();
-		return false;
-	}
-	else
-	{
-        return true;
-	}
-#else	
-	return true;
-#endif
-}
 /**@brief Function for the GAP initialization.
  *
  * @details This function sets up all the necessary GAP (Generic Access Profile) parameters of the
@@ -594,8 +573,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
 
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
-    {
-//        uint32_t err_code;        
+    {       
         uint32_t msg_len;
         static uint16_t index=0;
 		
@@ -637,7 +615,6 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                     data_recived_flag = false;										  
                     ble_evt_flag = BLE_RCV_DATA;
                     index = 0;
-                    return;
                 }				
 	        }
 	        else if(all_data_len>data_recived_len)
@@ -651,7 +628,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 	             index += data_recived_len;
 	        }
 	        else
-	        {
+			{
                 all_data_len = 0;
                 index = 0;
                 return;
@@ -662,35 +639,23 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 	        if(all_data_len>index+data_recived_len)
 	        {
 	            index += data_recived_len;
+						  return;
 	        }
 	        else if(all_data_len == index+data_recived_len)
 	        {
 	            data_recived_flag = false;
 	            ble_evt_flag = BLE_RCV_DATA;
                 index = 0;
-                return;
 	        }
 	        else
 	        {
 	             all_data_len = 0;
 	             index = 0;
+						   return;
 	        }
     }	
-        
-#if 0
-        //Send data
-        do
-        {
-            uint16_t length = (uint16_t)data_recived_len;
-            err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
-            if ((err_code != NRF_ERROR_INVALID_STATE) &&
-                (err_code != NRF_ERROR_RESOURCES) &&
-                (err_code != NRF_ERROR_NOT_FOUND))
-            {
-                APP_ERROR_CHECK(err_code);
-            }
-        } while (err_code == NRF_ERROR_RESOURCES);
-#endif				
+		
+		twi_write_data();       
     }
 
 }
@@ -741,17 +706,6 @@ static void services_init(void)
     nus_init.data_handler = nus_data_handler;
 
     err_code = ble_nus_init(&m_nus, &nus_init);
-    APP_ERROR_CHECK(err_code);
-}
-
-/**@brief Function for starting application timers.
- */
-static void application_timers_start(void)
-{
-    ret_code_t err_code;
-
-    // Start application timers.
-    err_code = app_timer_start(m_1second_timer_id, ON_SECOND_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -886,11 +840,9 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_CONNECTED:
         {
             NRF_LOG_INFO("Connected");
-			ble_evt_flag = BLE_CONNECT;
+			      ble_evt_flag = BLE_CONNECT;
 			
             m_peer_to_be_deleted = PM_PEER_ID_INVALID;
-            //err_code = bsp_indication_set(BSP_INDICATE_CONNECTED);
-            //APP_ERROR_CHECK(err_code);
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
             APP_ERROR_CHECK(err_code);
@@ -1085,7 +1037,8 @@ static void power_management_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
-static void twi_write_data(void *p_event_data,uint16_t event_size)
+//static void twi_write_data(void *p_event_data,uint16_t event_size)
+static void twi_write_data(void)
 {
     if(BLE_RCV_DATA == ble_evt_flag)
     {
@@ -1096,35 +1049,19 @@ static void twi_write_data(void *p_event_data,uint16_t event_size)
     }
 }
 
-static void twi_read_data(void *p_event_data,uint16_t event_size)
+//static void twi_read_data(void *p_event_data,uint16_t event_size)
+static void twi_read_data(void)
 {
 	ret_code_t err_code;
 	
-#if 1	
     if(BLE_SEND_I2C_DATA == ble_evt_flag)
     {
-        if(false == check_twi_timeout())
-        {
-            ble_evt_flag = BLE_DEFAULT;
-            return;
-        }
-        //nrf_delay_ms(30);
-        if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==0)//can read
-        {
-            //nrf_delay_ms(30);
-            i2c_master_read();			
-            ble_evt_flag = BLE_READ_I2C_HEAD;
-		    RST_ONE_SECNOD_COUNTER();
-        }
+        i2c_master_read();			
+        ble_evt_flag = BLE_READ_I2C_HEAD;
     }
 	
     if(BLE_READ_I2C_HEAD == ble_evt_flag)
     {
-        if(false == check_twi_timeout())
-        {
-            ble_evt_flag = BLE_DEFAULT;
-			return;
-		}
         if(true == data_recived_flag)
         {
             ble_evt_flag = BLE_READ_I2C_DATA;
@@ -1144,8 +1081,7 @@ static void twi_read_data(void *p_event_data,uint16_t event_size)
 			RST_ONE_SECNOD_COUNTER();
         }
     }
-  
-#endif	
+
 }
 
 
@@ -1157,7 +1093,6 @@ static void idle_state_handle(void)
 {
     ret_code_t err_code;
 
-	app_sched_execute();
     err_code = nrf_ble_lesc_request_handler();
     APP_ERROR_CHECK(err_code);
 
@@ -1166,12 +1101,33 @@ static void idle_state_handle(void)
         nrf_pwr_mgmt_run();
     }
 }
+void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
+{
+    twi_read_data();
+}
+
+static void gpiote_init(void)
+{
+    ret_code_t err_code;
+
+    err_code = nrf_drv_gpiote_init();
+    APP_ERROR_CHECK(err_code);
+
+    nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_TOGGLE(true);
+    in_config.pull = NRF_GPIO_PIN_PULLUP;
+
+    err_code = nrf_drv_gpiote_in_init(TWI_STATUS_GPIO, &in_config, in_pin_handler);
+    APP_ERROR_CHECK(err_code);
+
+    nrf_drv_gpiote_in_event_enable(TWI_STATUS_GPIO, true);
+}
 
 static void gpio_init(void)
 {
     //Detect USB insert status.
     nrf_gpio_cfg_input(USB_INS_PIN,NRF_GPIO_PIN_NOPULL);
-    nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
+    //nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
+    gpiote_init();
 }
 static void system_init()
 { 
@@ -1195,23 +1151,12 @@ static void advertising_start(bool erase_bonds)
     }
 }
 
-static void scheduler_init(void)
-{
-    APP_SCHED_INIT(SCHED_MAX_EVENT_DATA_SIZE, SCHED_QUEUE_SIZE);
-}
-
-static void main_loop(void)
-{   
-	app_sched_event_put(NULL,NULL,twi_write_data);
-    app_sched_event_put(NULL,NULL,twi_read_data);
-}
 /**@brief Application main function.
  */
 int main(void)
 {
     // Initialize.
     system_init();
-    scheduler_init();
     //uart_init();
     log_init();
 
@@ -1238,20 +1183,18 @@ int main(void)
 	
     peer_manager_init();
 
-    application_timers_start();
     // Start execution.
     //printf("\r\nUART started.\r\n");
     NRF_LOG_INFO("Debug logging for UART over RTT started.");
 	//�����㲥
     advertising_start(false);
 		
-	twi_master_init();
+    twi_master_init();
     nfc_init();
 
     // Enter main loop.
     for (;;)
     {
-        main_loop();
         idle_state_handle();
         nfc_poll();
     }
