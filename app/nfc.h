@@ -7,6 +7,12 @@ enum {
   READSTATE_READ_DATA,
 };
 
+enum {
+  NFCSTATE_IDLE,
+  NFCSTATE_READ_INFO,
+  NFCSTATE_READ_DATA,
+};
+
 extern bool data_recived_flag;
 extern uint8_t data_recived_buf[1024];
 extern uint32_t data_recived_len;

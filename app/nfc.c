@@ -226,7 +226,7 @@ bool i2c_master_write(uint8_t *buf,uint32_t len)
 		err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,buf+offset,len,false);
 	}
 	
-	while(twi_xfer_done == false);
+	//while(twi_xfer_done == false);
 	if(NRF_SUCCESS != err_code)
 	{
 		return false;
@@ -468,12 +468,88 @@ int nfc_init(void)
 
 static void apdu_command(void)
 {
-		uint32_t msg_len,data_len;
-		static bool reading=false;
+		static uint32_t msg_len;
+		uint32_t data_len;
+		static bool reading = false;
+		static uint8_t nfc_state = NFCSTATE_IDLE; 
 		
 		data_len=sizeof(nfc_data_buf);
 		app_fifo_read(&m_nfc_rx_fifo,nfc_data_buf,&data_len);
 		nfc_data_len = data_len;
+
+		if(nfc_state == NFCSTATE_IDLE)
+		{
+			if(nfc_data_buf[0] == '?' || nfc_data_buf[1] == '#' || nfc_data_buf[2] == '#')
+			{
+				if(data_len>=9)
+				{
+					msg_len=(uint32_t)(nfc_data_buf[5] << 24) + (nfc_data_buf[6] << 16) + (nfc_data_buf[7] << 8) + nfc_data_buf[8];
+					if(msg_len > 55)
+					{
+						nfc_state = NFCSTATE_READ_DATA;
+						msg_len -= 55;
+					}
+					data_recived_flag = false;
+					//apdu_cmd = true;
+					i2c_master_write(nfc_data_buf,data_len);
+					data_len = 2;
+					app_fifo_flush(&m_nfc_tx_fifo);		
+					app_fifo_write(&m_nfc_tx_fifo,"\x90\x00",&data_len);	
+				}		
+			}
+			else if(nfc_data_buf[0] == '#' || nfc_data_buf[1] == '*' || nfc_data_buf[2] == '*')
+			{
+					//usart
+				if(reading==false)
+				{
+					if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==0)//can read
+					{
+						i2c_master_read();
+						reading = true;
+					}
+					data_len = 3;
+					app_fifo_flush(&m_nfc_tx_fifo);		
+					app_fifo_write(&m_nfc_tx_fifo,"#**",&data_len);
+					
+				}
+				else 
+				{
+					if(data_recived_flag == false)
+					{
+						data_len = 3;
+						app_fifo_flush(&m_nfc_tx_fifo);		
+						app_fifo_write(&m_nfc_tx_fifo,"#**",&data_len);
+					}
+					else
+					{
+						data_recived_flag = false;
+						reading = false;
+						app_fifo_flush(&m_nfc_tx_fifo);
+						app_fifo_write(&m_nfc_tx_fifo,data_recived_buf,&data_recived_len);
+					}
+				}
+			}
+		}
+		else if(nfc_state == NFCSTATE_READ_DATA)
+		{
+			if(nfc_data_buf[0] != '?')
+			{
+				nfc_state = NFCSTATE_IDLE; 
+				data_len = 2;
+				app_fifo_flush(&m_nfc_tx_fifo);		
+				app_fifo_write(&m_nfc_tx_fifo,"\x6E\x00",&data_len);	
+			}
+			if(data_len-1 >= msg_len)
+			{
+				nfc_state = NFCSTATE_IDLE; 
+			}
+			msg_len -= (data_len-1);
+			i2c_master_write(nfc_data_buf,data_len);
+			data_len = 2;
+			app_fifo_flush(&m_nfc_tx_fifo);		
+			app_fifo_write(&m_nfc_tx_fifo,"\x90\x00",&data_len);	
+		}
+#if 0
 		if(nfc_data_buf[0] == '?' || nfc_data_buf[1] == '#' || nfc_data_buf[2] == '#')
 		{
 			if(data_len>=9)
@@ -532,7 +608,7 @@ static void apdu_command(void)
 			app_fifo_flush(&m_nfc_tx_fifo);		
 			app_fifo_write(&m_nfc_tx_fifo,"\x6D\x00",&data_len);
 		}
-		
+#endif		
 }
 
 void nfc_poll(void)

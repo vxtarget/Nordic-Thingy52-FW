@@ -173,7 +173,6 @@ NRF_BLE_QWR_DEF(m_qwr);                                                         
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
 
-static uint16_t all_data_len=0;
 static uint8_t one_second_counter=0;
 static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
 static uint8_t mac_ascii[24];
@@ -190,9 +189,9 @@ static ble_uuid_t   m_adv_uuids[] =                                             
 {
 #if BLE_DIS_ENABLED
     {BLE_UUID_DEVICE_INFORMATION_SERVICE, BLE_UUID_TYPE_BLE},
-#endif		
+#endif    
     {BLE_UUID_BATTERY_SERVICE, BLE_UUID_TYPE_BLE},    
-		{BLE_UUID_NUS_SERVICE, BLE_UUID_TYPE_BLE}
+    {BLE_UUID_NUS_SERVICE, BLE_UUID_TYPE_BLE}
 };
 
 static void advertising_start(bool erase_bonds);
@@ -222,14 +221,14 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
         nrf_saadc_value_t adc_result;
         uint8_t percentage_batt_level;
         uint32_t err_code;
-		
+    
         adc_result = p_evt->data.done.p_buffer[0];
         err_code = nrf_drv_saadc_buffer_convert(p_evt->data.done.p_buffer,1);
         APP_ERROR_CHECK(err_code);
         m_batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
 
         percentage_batt_level = battery_level_in_percent(m_batt_lvl_in_milli_volts);
-		
+    
         err_code = ble_bas_battery_level_update(&m_bas,percentage_batt_level,BLE_CONN_HANDLE_ALL);
         if((err_code != NRF_SUCCESS)&&
             (err_code != NRF_ERROR_INVALID_STATE)&&
@@ -383,11 +382,11 @@ static void pm_evt_handler(pm_evt_t const * p_evt)
         } break;
 
         case PM_EVT_CONN_SEC_CONFIG_REQ:
-				{
+        {
             pm_conn_sec_config_t conn_sec_config = {.allow_repairing = true};
             pm_conn_sec_config_reply(p_evt->conn_handle, &conn_sec_config);
         }   break; // PM_EVT_CONN_SEC_CONFIG_REQ
-				
+        
         case PM_EVT_CONN_SEC_FAILED:
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
             break;
@@ -415,30 +414,30 @@ void mac_address_get(void)
 	{
 	if((mac[i]>>4)<0x0a)
 	{
-		mac_ascii[j]=0x30+(mac[i]>>4);
-		j++;
+    mac_ascii[j]=0x30+(mac[i]>>4);
+    j++;
 	}
 	else
 	{
-		mac_ascii[j]=0x31;
-		j++;
-		mac_ascii[j]=0x30+(mac[i]>>4)%0x0a;
-		j++;
+    mac_ascii[j]=0x31;
+    j++;
+    mac_ascii[j]=0x30+(mac[i]>>4)%0x0a;
+    j++;
 	}
 
 	if((mac[i]&0x0f)<0x0a)
 	{
-			mac_ascii[j]=0x30+(mac[i]&0x0f);
-			j++;
+    	mac_ascii[j]=0x30+(mac[i]&0x0f);
+    	j++;
 	}
 	else
 	{
-		mac_ascii[j]=0x31;
-		j++;
-		mac_ascii[j]=0x30+(mac[i]&0x0f)%0x0a;
-		j++;
+    mac_ascii[j]=0x31;
+    j++;
+    mac_ascii[j]=0x30+(mac[i]&0x0f)%0x0a;
+    j++;
 	}
-	}		
+	}    
 
 	memcpy(&DEVICE_NAME[8],mac_ascii,12);
 }
@@ -447,14 +446,14 @@ void read_name_record(void)
 	uint32_t i ;
 	if (('U' == *(uint8_t *)NAME_ADDR)&&('2'==*((uint8_t *)NAME_ADDR+1)))
 	{
-		for(i=0;i<12;i++)
-		{
-			ble_adv_name[i] = *((uint8_t *)NAME_ADDR+i) ;
-		}
-		for(i=12;i<NAMETK_LEN;i++)
-		{
-			ble_adv_name[i-12] = *((uint8_t *)NAME_ADDR+i) ;
-		}	
+    for(i=0;i<12;i++)
+    {
+    	ble_adv_name[i] = *((uint8_t *)NAME_ADDR+i) ;
+    }
+    for(i=12;i<NAMETK_LEN;i++)
+    {
+    	ble_adv_name[i-12] = *((uint8_t *)NAME_ADDR+i) ;
+    }	
 	}
 }
 
@@ -512,11 +511,11 @@ static void gap_params_init(void)
 
     err_code = sd_ble_gap_ppcp_set(&gap_conn_params);
     APP_ERROR_CHECK(err_code);
-#if FIXED_PIN																					
-    //set fixed Passkey													
+#if FIXED_PIN                                        	
+    //set fixed Passkey                        	
     err_code = sd_ble_opt_set(BLE_GAP_OPT_PASSKEY, &ble_opt);	
     APP_ERROR_CHECK(err_code);	
-#endif																					
+#endif                                        	
 }
 
 static uint16_t   m_ble_nus_max_data_len = BLE_GATT_ATT_MTU_DEFAULT - 3;            /**< Maximum length of data (in bytes) that can be transmitted to the peer by the Nordic UART service module. */
@@ -571,93 +570,52 @@ static void nrf_qwr_error_handler(uint32_t nrf_error)
 /**@snippet [Handling the data received over BLE] */
 static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
-
+    static uint32_t msg_len;
+    static bool reading = false;
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {       
-        uint32_t msg_len;
-        static uint16_t index=0;
-		
+        static uint16_t index=0;    
         //NRF_LOG_INFO("Received data from BLE NUS.");
         //NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
         memcpy(&data_recived_buf[index],p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
-        data_recived_len=p_evt->params.rx_data.length;		      
+        data_recived_len=p_evt->params.rx_data.length;          
 
-        if(0 == all_data_len)
+        if(reading == false)
         {
-            if(data_recived_len<9)
+            if(data_recived_buf[0] == '?' || data_recived_buf[1] == '#' || data_recived_buf[2] == '#')
+        	{
+            data_recived_flag = false;	
+            msg_len=(uint32_t)((data_recived_buf[5] << 24) + 
+            	   (data_recived_buf[6] << 16) + 
+            	   (data_recived_buf[7] << 8) + 
+            	   (data_recived_buf[8]));
+            if(msg_len >55)
             {
-                return;
+            	msg_len -=55;
+            	reading = true;
+            }            
+            ble_evt_flag = BLE_RCV_DATA;
+        	}
+        }
+        else
+        {
+        	if(data_recived_buf[0] == '?')
+        	{
+            if(data_recived_len-1 > msg_len)
+            {
+            	reading = false;
+            	msg_len = 0;
             }
-			
-           msg_len=(uint32_t)((data_recived_buf[5] << 24) + 
-							   (data_recived_buf[6] << 16) + 
-							   (data_recived_buf[7] << 8) + 
-							   (data_recived_buf[8]));
-		
-	        if(0 == msg_len)
-	        {
-	            all_data_len = data_recived_len;
-	            index = 0;
-	        }
             else
-	        {
-	            all_data_len=msg_len+9;
-                if(all_data_len<=64)
-                {
-                    all_data_len=data_recived_len;
-                }				
-	        }
-		   //
-	        if(all_data_len == data_recived_len)
-	        {
-	            if(data_recived_buf[0] == '?' || data_recived_buf[1] == '#' || data_recived_buf[2] == '#')
-	            {
-                    data_recived_flag = false;										  
-                    ble_evt_flag = BLE_RCV_DATA;
-                    index = 0;
-                }				
-	        }
-	        else if(all_data_len>data_recived_len)
-	        {
-	             if(data_recived_buf[0] != '?' || data_recived_buf[1] != '#' || data_recived_buf[2] != '#')
-	             {
-                     all_data_len = 0;
-                     index = 0;
-                     return;
-                 }
-	             index += data_recived_len;
-	        }
-	        else
-			{
-                all_data_len = 0;
-                index = 0;
-                return;
-            }
-		}
-		else
-		{					
-	        if(all_data_len>index+data_recived_len)
-	        {
-	            index += data_recived_len;
-						  return;
-	        }
-	        else if(all_data_len == index+data_recived_len)
-	        {
-	            data_recived_flag = false;
-	            ble_evt_flag = BLE_RCV_DATA;
-                index = 0;
-	        }
-	        else
-	        {
-	             all_data_len = 0;
-	             index = 0;
-						   return;
-	        }
-    }	
-		
-		twi_write_data();       
+            {
+            	msg_len -= (data_recived_len-1);
+            }            
+            ble_evt_flag = BLE_RCV_DATA;
+        	}
+        }   
+    
+        twi_write_data();       
     }
-
 }
 
 /**@brief Function for initializing services that will be used by the application.
@@ -676,7 +634,7 @@ static void services_init(void)
 
     err_code = nrf_ble_qwr_init(&m_qwr, &qwr_init);
     APP_ERROR_CHECK(err_code);
-		
+    
     // Initialize Battery Service.
     sys_bas_init();
 
@@ -689,7 +647,7 @@ static void services_init(void)
     ble_srv_ascii_to_utf8(&dis_init.hw_rev_str,HW_REVISION);
     ble_srv_ascii_to_utf8(&dis_init.fw_rev_str,FW_REVISION);
     ble_srv_ascii_to_utf8(&dis_init.sw_rev_str,SW_REVISION);
-		
+    
     ble_dis_sys_id_t system_id;
     system_id.manufacturer_id            = MANUFACTURER_ID;
     system_id.organizationally_unique_id = ORG_UNIQUE_ID;
@@ -699,7 +657,7 @@ static void services_init(void)
 
     err_code = ble_dis_init(&dis_init);
     APP_ERROR_CHECK(err_code);
-#endif		
+#endif    
     // Initialize NUS.
     memset(&nus_init, 0, sizeof(nus_init));
 
@@ -840,8 +798,8 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_CONNECTED:
         {
             NRF_LOG_INFO("Connected");
-			      ble_evt_flag = BLE_CONNECT;
-			
+    	      ble_evt_flag = BLE_CONNECT;
+    	
             m_peer_to_be_deleted = PM_PEER_ID_INVALID;
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
@@ -885,7 +843,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         {
             char passkey[PASSKEY_LENGTH + 1];
             memcpy(passkey, p_ble_evt->evt.gap_evt.params.passkey_display.passkey, PASSKEY_LENGTH);
-			memcpy(&data_recived_buf[4],passkey,PASSKEY_LENGTH);
+    	memcpy(&data_recived_buf[4],passkey,PASSKEY_LENGTH);
             passkey[PASSKEY_LENGTH] = 0;
 
             NRF_LOG_INFO("Passkey: %s", nrf_log_push(passkey));
@@ -1042,8 +1000,7 @@ static void twi_write_data(void)
 {
     if(BLE_RCV_DATA == ble_evt_flag)
     {
-        i2c_master_write(data_recived_buf,all_data_len);
-        all_data_len = 0;
+        i2c_master_write(data_recived_buf,64);
         ble_evt_flag = BLE_SEND_I2C_DATA;
         RST_ONE_SECNOD_COUNTER();
     }
@@ -1056,7 +1013,7 @@ static void twi_read_data(void)
 	
     if(BLE_SEND_I2C_DATA == ble_evt_flag)
     {
-        i2c_master_read();			
+        i2c_master_read();    	
         ble_evt_flag = BLE_READ_I2C_HEAD;
     }
 	
@@ -1078,7 +1035,7 @@ static void twi_read_data(void)
                 }
             } while (err_code == NRF_ERROR_RESOURCES);
             ble_evt_flag = BLE_DEFAULT;
-			RST_ONE_SECNOD_COUNTER();
+    	RST_ONE_SECNOD_COUNTER();
         }
     }
 
@@ -1188,7 +1145,7 @@ int main(void)
     NRF_LOG_INFO("Debug logging for UART over RTT started.");
 	//�����㲥
     advertising_start(false);
-		
+    
     twi_master_init();
     nfc_init();
 
@@ -1196,7 +1153,6 @@ int main(void)
     for (;;)
     {
         idle_state_handle();
-        nfc_poll();
     }
 }
 
