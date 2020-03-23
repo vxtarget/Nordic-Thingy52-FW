@@ -84,9 +84,11 @@
 #include "nfc.h"
 #include "my_board.h"
 #include "app_scheduler.h"
-#include "nrf_drv_gpiote.h"
-
+#include "ble_dfu.h"
 #include "nrf_delay.h"
+#include "nrf_bootloader_info.h"
+#include "nrf_drv_gpiote.h"
+#include "nrf_power.h"
 
 #define NAME_ADDR                       0x30000
 #define NAMETK_LEN                      18
@@ -194,10 +196,84 @@ static ble_uuid_t   m_adv_uuids[] =                                             
     {BLE_UUID_NUS_SERVICE, BLE_UUID_TYPE_BLE}
 };
 
-static void advertising_start(bool erase_bonds);
-//static void twi_write_data(void *p_event_data,uint16_t event_size);
+static void advertising_start(void);
 static void twi_write_data(void);
+static void twi_read_data(void);
 
+/**@brief Handler for shutdown preparation.
+ *
+ * @details During shutdown procedures, this function will be called at a 1 second interval
+ *          untill the function returns true. When the function returns true, it means that the
+ *          app is ready to reset to DFU mode.
+ *
+ * @param[in]   event   Power manager event.
+ *
+ * @retval  True if shutdown is allowed by this power manager handler, otherwise false.
+ */
+static bool app_shutdown_handler(nrf_pwr_mgmt_evt_t event)
+{
+    switch (event)
+    {
+        case NRF_PWR_MGMT_EVT_PREPARE_DFU:
+            NRF_LOG_INFO("Power management wants to reset to DFU mode.");
+            // YOUR_JOB: Get ready to reset into DFU mode
+            //
+            // If you aren't finished with any ongoing tasks, return "false" to
+            // signal to the system that reset is impossible at this stage.
+            //
+            // Here is an example using a variable to delay resetting the device.
+            //
+            // if (!m_ready_for_reset)
+            // {
+            //      return false;
+            // }
+            // else
+            //{
+            //
+            //    // Device ready to enter
+            //    uint32_t err_code;
+            //    err_code = sd_softdevice_disable();
+            //    APP_ERROR_CHECK(err_code);
+            //    err_code = app_timer_stop_all();
+            //    APP_ERROR_CHECK(err_code);
+            //}
+            break;
+
+        default:
+            // YOUR_JOB: Implement any of the other events available from the power management module:
+            //      -NRF_PWR_MGMT_EVT_PREPARE_SYSOFF
+            //      -NRF_PWR_MGMT_EVT_PREPARE_WAKEUP
+            //      -NRF_PWR_MGMT_EVT_PREPARE_RESET
+            return true;
+    }
+
+    NRF_LOG_INFO("Power management allowed to reset to DFU mode.");
+    return true;
+}
+
+//lint -esym(528, m_app_shutdown_handler)
+/**@brief Register application shutdown handler with priority 0.
+ */
+NRF_PWR_MGMT_HANDLER_REGISTER(app_shutdown_handler, 0);
+
+
+static void buttonless_dfu_sdh_state_observer(nrf_sdh_state_evt_t state, void * p_context)
+{
+    if (state == NRF_SDH_EVT_STATE_DISABLED)
+    {
+        // Softdevice was disabled before going into reset. Inform bootloader to skip CRC on next boot.
+        nrf_power_gpregret2_set(BOOTLOADER_DFU_SKIP_CRC);
+
+        //Go to system off.
+        nrf_pwr_mgmt_shutdown(NRF_PWR_MGMT_SHUTDOWN_GOTO_SYSOFF);
+    }
+}
+
+/* nrf_sdh state observer. */
+NRF_SDH_STATE_OBSERVER(m_buttonless_dfu_state_obs, 0) =
+{
+    .handler = buttonless_dfu_sdh_state_observer,
+};
 /**@brief Function for assert macro callback.
  *
  * @details This function will be called in case of an assert in the SoftDevice.
@@ -392,7 +468,7 @@ static void pm_evt_handler(pm_evt_t const * p_evt)
             break;
 
         case PM_EVT_PEERS_DELETE_SUCCEEDED:
-            advertising_start(false);
+            advertising_start();
             break;
 
         default:
@@ -559,7 +635,85 @@ static void nrf_qwr_error_handler(uint32_t nrf_error)
 {
     APP_ERROR_HANDLER(nrf_error);
 }
+#ifdef BUTTONLESS_ENABLED
+static void advertising_config_get(ble_adv_modes_config_t * p_config)
+{
+    memset(p_config, 0, sizeof(ble_adv_modes_config_t));
 
+    p_config->ble_adv_fast_enabled  = true;
+    p_config->ble_adv_fast_interval = APP_ADV_INTERVAL;
+    p_config->ble_adv_fast_timeout  = APP_ADV_DURATION;
+}
+
+
+static void disconnect(uint16_t conn_handle, void * p_context)
+{
+    UNUSED_PARAMETER(p_context);
+
+    ret_code_t err_code = sd_ble_gap_disconnect(conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+    if (err_code != NRF_SUCCESS)
+    {
+        NRF_LOG_WARNING("Failed to disconnect connection. Connection handle: %d Error: %d", conn_handle, err_code);
+    }
+    else
+    {
+        NRF_LOG_DEBUG("Disconnected connection handle %d", conn_handle);
+    }
+}
+
+
+// YOUR_JOB: Update this code if you want to do anything given a DFU event (optional).
+/**@brief Function for handling dfu events from the Buttonless Secure DFU service
+ *
+ * @param[in]   event   Event from the Buttonless Secure DFU service.
+ */
+static void ble_dfu_evt_handler(ble_dfu_buttonless_evt_type_t event)
+{
+    switch (event)
+    {
+        case BLE_DFU_EVT_BOOTLOADER_ENTER_PREPARE:
+        {
+            NRF_LOG_INFO("Device is preparing to enter bootloader mode.");
+
+            // Prevent device from advertising on disconnect.
+            ble_adv_modes_config_t config;
+            advertising_config_get(&config);
+            config.ble_adv_on_disconnect_disabled = true;
+            ble_advertising_modes_config_set(&m_advertising, &config);
+
+            // Disconnect all other bonded devices that currently are connected.
+            // This is required to receive a service changed indication
+            // on bootup after a successful (or aborted) Device Firmware Update.
+            uint32_t conn_count = ble_conn_state_for_each_connected(disconnect, NULL);
+            NRF_LOG_INFO("Disconnected %d links.", conn_count);
+            break;
+        }
+
+        case BLE_DFU_EVT_BOOTLOADER_ENTER:
+            // YOUR_JOB: Write app-specific unwritten data to FLASH, control finalization of this
+            //           by delaying reset by reporting false in app_shutdown_handler
+            NRF_LOG_INFO("Device will enter bootloader mode.");
+            break;
+
+        case BLE_DFU_EVT_BOOTLOADER_ENTER_FAILED:
+            NRF_LOG_ERROR("Request to enter bootloader mode failed asynchroneously.");
+            // YOUR_JOB: Take corrective measures to resolve the issue
+            //           like calling APP_ERROR_CHECK to reset the device.
+            break;
+
+        case BLE_DFU_EVT_RESPONSE_SEND_ERROR:
+            NRF_LOG_ERROR("Request to send a response to client failed.");
+            // YOUR_JOB: Take corrective measures to resolve the issue
+            //           like calling APP_ERROR_CHECK to reset the device.
+            APP_ERROR_CHECK(false);
+            break;
+
+        default:
+            NRF_LOG_ERROR("Unknown event from ble_dfu_buttonless.");
+            break;
+    }
+}
+#endif
 /**@brief Function for handling the data from the Nordic UART Service.
  *
  * @details This function will process the data received from the Nordic UART BLE Service and send
@@ -624,17 +778,25 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
  */
 static void services_init(void)
 {
-    ret_code_t         err_code;
-    ble_dis_init_t     dis_init;
-    ble_nus_init_t     nus_init;
-    nrf_ble_qwr_init_t qwr_init = {0};
+    ret_code_t                err_code;
+    ble_dis_init_t            dis_init;
+    ble_nus_init_t            nus_init;
+    nrf_ble_qwr_init_t        qwr_init = {0};
+#ifdef BUTTONLESS_ENABLED
+    ble_dfu_buttonless_init_t dfus_init = {0};
+#endif	
 
     // Initialize Queued Write Module.
     qwr_init.error_handler = nrf_qwr_error_handler;
 
     err_code = nrf_ble_qwr_init(&m_qwr, &qwr_init);
     APP_ERROR_CHECK(err_code);
-    
+#ifdef BUTTONLESS_ENABLED
+    dfus_init.evt_handler = ble_dfu_evt_handler;
+
+    err_code = ble_dfu_buttonless_init(&dfus_init);
+    APP_ERROR_CHECK(err_code);
+#endif	
     // Initialize Battery Service.
     sys_bas_init();
 
@@ -931,7 +1093,7 @@ static void peer_manager_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
-
+#if 0
 /**@brief Clear bond information from persistent storage.
  */
 static void delete_bonds(void)
@@ -943,7 +1105,7 @@ static void delete_bonds(void)
     err_code = pm_peers_delete();
     APP_ERROR_CHECK(err_code);
 }
-
+#endif
 
 /**@brief Function for initializing the Advertising functionality.
  *
@@ -990,12 +1152,10 @@ static void log_init(void)
  */
 static void power_management_init(void)
 {
-    ret_code_t err_code;
-    err_code = nrf_pwr_mgmt_init();
+    ret_code_t err_code = nrf_pwr_mgmt_init();
     APP_ERROR_CHECK(err_code);
 }
 
-//static void twi_write_data(void *p_event_data,uint16_t event_size)
 static void twi_write_data(void)
 {
     if(BLE_RCV_DATA == ble_evt_flag)
@@ -1006,7 +1166,6 @@ static void twi_write_data(void)
     }
 }
 
-//static void twi_read_data(void *p_event_data,uint16_t event_size)
 static void twi_read_data(void)
 {
 	ret_code_t err_code;
@@ -1093,25 +1252,22 @@ static void system_init()
 
 /**@brief Function for starting advertising.
  */
-static void advertising_start(bool erase_bonds)
+static void advertising_start(void)
 {
-    if (erase_bonds == true)
-    {
-        delete_bonds();
-        // Advertising is started by PM_EVT_PEERS_DELETE_SUCCEEDED event.
-    }
-    else
-    {
         ret_code_t err_code = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
 
         APP_ERROR_CHECK(err_code);
-    }
 }
 
 /**@brief Application main function.
  */
 int main(void)
-{
+{    
+#ifdef BUTTONLESS_ENABLED
+	// Initialize the async SVCI interface to bootloader before any interrupts are enabled.
+    ret_code_t err_code = ble_dfu_buttonless_async_svci_init();
+    APP_ERROR_CHECK(err_code);
+#endif
     // Initialize.
     system_init();
     //uart_init();
@@ -1129,22 +1285,23 @@ int main(void)
     read_name_record();
     mac_address_get();
 	//�豸����,���Ӱ�ȫģʽ,�������,ppcpĬ�����Ӳ���
+    peer_manager_init();
     gap_params_init();
 	//���Ӳ������º����ݳ��ȸ�ϸ
     gatt_init();
+    advertising_init();
     services_init();
 	//�㲥������ʼ��
     advertising_init();
 	//���Ӳ������³�ʼ��
     conn_params_init();
 	
-    peer_manager_init();
 
     // Start execution.
     //printf("\r\nUART started.\r\n");
     NRF_LOG_INFO("Debug logging for UART over RTT started.");
 	//�����㲥
-    advertising_start(false);
+    advertising_start();
     
     twi_master_init();
     nfc_init();
