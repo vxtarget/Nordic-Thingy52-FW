@@ -99,7 +99,7 @@ void app_error_handler_bare(uint32_t error_code)
 /**
  * @brief Function notifies certain events in DFU process.
  */
-static void dfu_observer(nrf_dfu_evt_type_t evt_type)
+static void dfu_observer1(nrf_dfu_evt_type_t evt_type)
 {
     switch (evt_type)
     {
@@ -142,7 +142,7 @@ int main(void)
 
     NRF_LOG_INFO("Inside main");
 
-    ret_val = nrf_bootloader_init(dfu_observer);
+    ret_val = nrf_bootloader_init(dfu_observer1);
     APP_ERROR_CHECK(ret_val);
 
     NRF_LOG_FLUSH();

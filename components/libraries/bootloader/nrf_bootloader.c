@@ -87,7 +87,7 @@ STATIC_ASSERT(NRF_LOG_BACKEND_FLASH_START_PAGE != 0,
  * @note   This function will be overridden if nrf_dfu.c is
  *         compiled and linked with the project
  */
- #if (__LINT__ != 1)
+ #if 0//(__LINT__ != 1)
 __WEAK uint32_t nrf_dfu_init(nrf_dfu_observer_t observer)
 {
     NRF_LOG_DEBUG("in weak nrf_dfu_init");
@@ -152,7 +152,7 @@ static void inactivity_timeout(void)
 
 /**@brief Function for handling DFU events.
  */
-static void dfu_observer(nrf_dfu_evt_type_t evt_type)
+static void dfu_observer2(nrf_dfu_evt_type_t evt_type)
 {
     switch (evt_type)
     {
@@ -492,7 +492,7 @@ ret_code_t nrf_bootloader_init(nrf_dfu_observer_t observer)
 
         nrf_bootloader_dfu_inactivity_timer_restart(initial_timeout, inactivity_timeout);
 
-        ret_val = nrf_dfu_init(dfu_observer);
+        ret_val = nrf_dfu_init(dfu_observer2);
         if (ret_val != NRF_SUCCESS)
         {
             return NRF_ERROR_INTERNAL;

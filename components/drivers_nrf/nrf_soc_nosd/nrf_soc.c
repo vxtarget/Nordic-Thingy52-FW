@@ -40,9 +40,10 @@
 #include <stdlib.h>
 #include "nrf_soc.h"
 #include "nrf_error.h"
-
+#if 0
 uint32_t sd_app_evt_wait(void)
 {
     __WFE();
     return NRF_SUCCESS;
 }
+#endif
