@@ -133,11 +133,11 @@
 #define MAX_BATTERY_LEVEL               100                                         /**< Maximum battery level as returned by the simulated measurement function. */
 #define BATTERY_LEVEL_INCREMENT         1                                           /**< Value by which the battery level is incremented/decremented for each call to the simulated measurement function. */
 
-#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(10, UNIT_1_25_MS)             /**< Minimum acceptable connection interval (10 ms). */
-#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(100, UNIT_1_25_MS)            /**< Maximum acceptable connection interval (100 ms) */
+#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(7.5, UNIT_1_25_MS)             /**< Minimum acceptable connection interval (10 ms). */
+#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(11.25, UNIT_1_25_MS)            /**< Maximum acceptable connection interval (100 ms) */
 #define SLAVE_LATENCY                   0                                           /**< Slave latency. */
 #define CONN_SUP_TIMEOUT                MSEC_TO_UNITS(4000, UNIT_10_MS)             /**< Connection supervisory timeout (4 seconds). */
-#define FIRST_CONN_PARAMS_UPDATE_DELAY  APP_TIMER_TICKS(5000)                       /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
+#define FIRST_CONN_PARAMS_UPDATE_DELAY  APP_TIMER_TICKS(100)                       /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
 #define NEXT_CONN_PARAMS_UPDATE_DELAY   APP_TIMER_TICKS(30000)                      /**< Time between each call to sd_ble_gap_conn_param_update after the first call (30 seconds). */
 #define ON_SECOND_INTERVAL              APP_TIMER_TICKS(1000)
 
@@ -922,7 +922,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
             break; // BLE_ADV_EVT_FAST
 
         case BLE_ADV_EVT_IDLE:
-            sleep_mode_enter();
+            //sleep_mode_enter();
             break; // BLE_ADV_EVT_IDLE
 
         default:
@@ -1169,37 +1169,36 @@ static void twi_write_data(void)
 static void twi_read_data(void)
 {
 	ret_code_t err_code;
+	uint32_t counter = 0;
 	
-    if(BLE_SEND_I2C_DATA == ble_evt_flag)
+  if(BLE_SEND_I2C_DATA == ble_evt_flag)
+  {
+    i2c_master_read();    	
+    ble_evt_flag = BLE_READ_I2C_HEAD;
+		while(false == data_recived_flag)
+		{
+			counter++;
+			nrf_delay_ms(1);
+			if(counter > 500)return;
+		}
+		data_recived_flag=false;
+		ble_evt_flag = BLE_READ_I2C_DATA;
+    //Send data
+    do
     {
-        i2c_master_read();    	
-        ble_evt_flag = BLE_READ_I2C_HEAD;
-    }
-	
-    if(BLE_READ_I2C_HEAD == ble_evt_flag)
-    {
-        if(true == data_recived_flag)
-        {
-            ble_evt_flag = BLE_READ_I2C_DATA;
-            //Send data
-            do
-            {
-                uint16_t length = (uint16_t)data_recived_len;
-                err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
-                if ((err_code != NRF_ERROR_INVALID_STATE) &&
-                    (err_code != NRF_ERROR_RESOURCES) &&
-                    (err_code != NRF_ERROR_NOT_FOUND))
-                {
-                    APP_ERROR_CHECK(err_code);
-                }
-            } while (err_code == NRF_ERROR_RESOURCES);
-            ble_evt_flag = BLE_DEFAULT;
-    	RST_ONE_SECNOD_COUNTER();
-        }
-    }
-
+      uint16_t length = (uint16_t)data_recived_len;
+      err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
+      if ((err_code != NRF_ERROR_INVALID_STATE) &&
+          (err_code != NRF_ERROR_RESOURCES) &&
+          (err_code != NRF_ERROR_NOT_FOUND))
+      {
+          APP_ERROR_CHECK(err_code);
+      }
+    } while (err_code == NRF_ERROR_RESOURCES);
+    ble_evt_flag = BLE_DEFAULT;
+  	RST_ONE_SECNOD_COUNTER();
+  }	
 }
-
 
 /**@brief Function for handling the idle state (main loop).
  *
@@ -1309,7 +1308,7 @@ int main(void)
     // Enter main loop.
     for (;;)
     {
-        idle_state_handle();
+			idle_state_handle();
     }
 }
 

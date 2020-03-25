@@ -60,6 +60,8 @@
 #include "nrf_log_ctrl.h"
 #include "nrf_log.h"
 
+#include "nrf_delay.h"
+
 #include "nfc.h"
 
 #define MAX_APDU_LEN      1024   /**< Maximal APDU length, Adafruit limitation. */
@@ -226,7 +228,8 @@ bool i2c_master_write(uint8_t *buf,uint32_t len)
 		err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,buf+offset,len,false);
 	}
 	
-	//while(twi_xfer_done == false);
+//	while(twi_xfer_done == false);
+//	twi_xfer_done = false;
 	if(NRF_SUCCESS != err_code)
 	{
 		return false;

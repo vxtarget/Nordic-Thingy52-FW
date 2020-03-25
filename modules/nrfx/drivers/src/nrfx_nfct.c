@@ -84,7 +84,8 @@ static nrfx_nfct_timer_workaround_t m_timer_workaround =
 #endif // defined(USE_TIMER_WORKAROUND)
 
 #define NRFX_NFCT_FWT_MAX_DIFF         1u             /**< The maximal difference between the requested FWT and HW-limited FWT settings.*/
-#define NFCT_FRAMEDELAYMAX_DEFAULT     (0x00001000UL) /**< Default value of the FRAMEDELAYMAX. */
+//#define NFCT_FRAMEDELAYMAX_DEFAULT     (0x00001000UL) /**< Default value of the FRAMEDELAYMAX. */
+#define NFCT_FRAMEDELAYMAX_DEFAULT     (0x0000FFFFUL) /**< Default value of the FRAMEDELAYMAX. */
 
 /* Mask of all possible interrupts that are relevant for data reception. */
 #define NRFX_NFCT_RX_INT_MASK (NRF_NFCT_INT_RXFRAMESTART_MASK | \
