@@ -90,6 +90,14 @@
 #include "nrf_drv_gpiote.h"
 #include "nrf_power.h"
 
+#include "nrf_delay.h"
+#if defined (UART_PRESENT)
+#include "nrf_uart.h"
+#endif
+#if defined (UARTE_PRESENT)
+#include "nrf_uarte.h"
+#endif
+
 #define NAME_ADDR                       0x30000
 #define NAMETK_LEN                      18
 #define BLENAMELEN                      8
@@ -168,6 +176,13 @@
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE) \
     ((((ADC_VALUE) *ADC_REF_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_10BIT) * ADC_PRE_SCALING_COMPENSATION)
 
+#ifdef UART_TRANS
+//UART define 
+#define MAX_TEST_DATA_BYTES     (15U)                /**< max number of test bytes to be used for tx and rx. */
+#define UART_TX_BUF_SIZE 256                         /**< UART TX buffer size. */
+#define UART_RX_BUF_SIZE 256                         /**< UART RX buffer size. */
+#endif
+
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
 BLE_BAS_DEF(m_bas);    
 NRF_BLE_GATT_DEF(m_gatt);                                                           /**< GATT module instance. */
@@ -184,7 +199,9 @@ static char DEVICE_NAME[20]="BixinKEY";
 
 static nrf_saadc_value_t adc_buf[2];
 static uint16_t          m_batt_lvl_in_milli_volts; //!< Current battery level.
-
+#ifdef UART_TRANS
+static tx_stm_data_t uart_tx_data;
+#endif
 static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 static uint16_t     m_conn_handle        = BLE_CONN_HANDLE_INVALID;                 /**< Handle of the current connection. */
 static ble_uuid_t   m_adv_uuids[] =                                                 /**< Universally unique service identifiers. */
@@ -199,6 +216,11 @@ static ble_uuid_t   m_adv_uuids[] =                                             
 static void advertising_start(void);
 static void twi_write_data(void);
 static void twi_read_data(void);
+#ifdef UART_TRANS
+static tx_stm_data_t uart_tx_data;
+static void uart_put_data(uint8_t *pdata,uint8_t lenth);
+static void send_stm_data(uint8_t cmd_count,uint8_t *pdata);
+#endif
 
 /**@brief Handler for shutdown preparation.
  *
@@ -938,7 +960,10 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
 static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
 {
     ret_code_t err_code;
-
+#ifdef UART_TRANS	
+    uint8_t cmd_buff[10];
+#endif
+	
     pm_handler_secure_on_connection(p_ble_evt);
 
     switch (p_ble_evt->header.evt_id)
@@ -947,6 +972,12 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         {
             NRF_LOG_INFO("Disconnected");
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
+#ifdef UART_TRANS
+					  cmd_buff[0] = 0x01;
+					  cmd_buff[1] = 0x01;
+					  cmd_buff[2] = 0x02;
+    	      send_stm_data(1,cmd_buff);
+#endif
             // Check if the last connected peer had not used MITM, if so, delete its bond information.
             if (m_peer_to_be_deleted != PM_PEER_ID_INVALID)
             {
@@ -961,7 +992,12 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         {
             NRF_LOG_INFO("Connected");
     	      ble_evt_flag = BLE_CONNECT;
-    	
+#ifdef UART_TRANS
+					  cmd_buff[0] = 0x01;
+					  cmd_buff[1] = 0x01;
+					  cmd_buff[2] = 0x01;
+    	      send_stm_data(1,cmd_buff);
+#endif
             m_peer_to_be_deleted = PM_PEER_ID_INVALID;
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
@@ -1005,9 +1041,14 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         {
             char passkey[PASSKEY_LENGTH + 1];
             memcpy(passkey, p_ble_evt->evt.gap_evt.params.passkey_display.passkey, PASSKEY_LENGTH);
-    	memcpy(&data_recived_buf[4],passkey,PASSKEY_LENGTH);
+    	      //memcpy(&data_recived_buf[4],passkey,PASSKEY_LENGTH);
             passkey[PASSKEY_LENGTH] = 0;
-
+#ifdef UART_TRANS
+			cmd_buff[0] = 0x03;
+			cmd_buff[1] = 0x06;
+			memcpy(&cmd_buff[2],passkey,PASSKEY_LENGTH);
+    	    send_stm_data(1,cmd_buff);
+#endif
             NRF_LOG_INFO("Passkey: %s", nrf_log_push(passkey));
         } break;
         
@@ -1103,6 +1144,97 @@ static void delete_bonds(void)
     NRF_LOG_INFO("Erase bonds!");
 
     err_code = pm_peers_delete();
+    APP_ERROR_CHECK(err_code);
+}
+#endif
+
+#ifdef UART_TRANS
+/**@brief   Function for handling app_uart events.
+ *
+ * @details This function will receive a single character from the app_uart module and append it to
+ *          a string. The string will be be sent over BLE when the last character received was a
+ *          'new line' '\n' (hex 0x0A) or if the string has reached the maximum data length.
+ */
+/**@snippet [Handling the data received over UART] */
+void uart_event_handle(app_uart_evt_t * p_event)
+{
+    static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
+    static uint8_t index = 0;
+    uint32_t       err_code;
+
+    switch (p_event->evt_type)
+    {
+        case APP_UART_DATA_READY:
+            UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+            index++;
+
+            if ((data_array[index - 1] == '\n') ||
+                (data_array[index - 1] == '\r') ||
+                (index >= m_ble_nus_max_data_len))
+            {
+                if (index > 1)
+                {
+                    NRF_LOG_DEBUG("Ready to send data over BLE NUS");
+                    NRF_LOG_HEXDUMP_DEBUG(data_array, index);
+
+                    do
+                    {
+                        uint16_t length = (uint16_t)index;
+                        err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
+                        if ((err_code != NRF_ERROR_INVALID_STATE) &&
+                            (err_code != NRF_ERROR_RESOURCES) &&
+                            (err_code != NRF_ERROR_NOT_FOUND))
+                        {
+                            APP_ERROR_CHECK(err_code);
+                        }
+                    } while (err_code == NRF_ERROR_RESOURCES);
+                }
+
+                index = 0;
+            }
+            break;
+
+        case APP_UART_COMMUNICATION_ERROR:
+            APP_ERROR_HANDLER(p_event->data.error_communication);
+            break;
+
+        case APP_UART_FIFO_ERROR:
+            APP_ERROR_HANDLER(p_event->data.error_code);
+            break;
+
+        default:
+            break;
+    }
+}
+/**@snippet [Handling the data received over UART] */
+
+/**@brief  Function for initializing the UART module.
+ */
+/**@snippet [UART Initialization] */
+static void usr_uart_init(void)
+{
+    uint32_t                     err_code;
+    app_uart_comm_params_t const comm_params =
+    {
+        .rx_pin_no    = RX_PIN_NUMBER,
+        .tx_pin_no    = TX_PIN_NUMBER,
+        .rts_pin_no   = RTS_PIN_NUMBER,
+        .cts_pin_no   = CTS_PIN_NUMBER,
+        .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
+        .use_parity   = false,
+#if defined (UART_PRESENT)
+        .baud_rate    = NRF_UART_BAUDRATE_115200
+#else
+        .baud_rate    = NRF_UARTE_BAUDRATE_115200
+#endif
+    };
+
+    APP_UART_FIFO_INIT(&comm_params,
+                       UART_RX_BUF_SIZE,
+                       UART_TX_BUF_SIZE,
+                       uart_event_handle,
+                       APP_IRQ_PRIORITY_LOWEST,
+                       err_code);
     APP_ERROR_CHECK(err_code);
 }
 #endif
@@ -1244,9 +1376,45 @@ static void gpio_init(void)
     //nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
     gpiote_init();
 }
+#ifdef UART_TRANS
+static void uart_put_data(uint8_t *pdata,uint8_t lenth)
+{
+    uint32_t err_code;
+	
+	  while(lenth--)
+		{
+			do
+			{
+					err_code = app_uart_put(*pdata++);
+					if ((err_code != NRF_SUCCESS) && (err_code != NRF_ERROR_BUSY))
+					{
+							APP_ERROR_CHECK(err_code);
+					}
+			} while (err_code == NRF_ERROR_BUSY);
+    }
+}
+static void send_stm_data(uint8_t cmd_count,uint8_t *pdata)
+{
+		uart_tx_data.data_lenth = 0;
+    uart_tx_data.tag_trans = UART_TX_TAG;
+    memcpy(&(uart_tx_data.cmd),pdata,6);
+	  for(uint8_t i=0;i<cmd_count;i++)
+	  {
+		    uart_tx_data.data_lenth += (cmd_count*2)+*(pdata+1);
+		}    
+		uart_tx_data.data_lenth++;
+		uart_tx_data.xor_byte = 0xff;
+		
+		uart_put_data((uint8_t *)&(uart_tx_data.tag_trans),uart_tx_data.data_lenth+4);
+}
+#endif
+
 static void system_init()
 { 
     gpio_init();
+#ifdef UART_TRANS	
+    usr_uart_init();
+#endif	
 }
 
 /**@brief Function for starting advertising.
@@ -1269,7 +1437,6 @@ int main(void)
 #endif
     // Initialize.
     system_init();
-    //uart_init();
     log_init();
 
 	//��ʱ����ʼ��,��������,ϵͳ��ʱ�û�������ʱ�����

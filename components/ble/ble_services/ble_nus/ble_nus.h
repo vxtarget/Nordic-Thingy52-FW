@@ -98,6 +98,7 @@ extern "C" {
 
 #define OPCODE_LENGTH        1
 #define HANDLE_LENGTH        2
+#define UART_TX_TAG          0x5A5A
 
 /**@brief   Maximum length of data (in bytes) that can be transmitted to the peer by the Nordic UART service module. */
 #if defined(NRF_SDH_BLE_GATT_MAX_MTU_SIZE) && (NRF_SDH_BLE_GATT_MAX_MTU_SIZE != 0)
@@ -117,6 +118,15 @@ typedef enum
     BLE_NUS_EVT_COMM_STOPPED, /**< Notification has been disabled. */
 } ble_nus_evt_type_t;
 
+typedef struct 
+{
+    uint16_t tag_trans;
+    uint16_t data_lenth;
+    uint8_t  cmd;
+	uint8_t  cmd_lenth;
+	uint8_t  cmd_value;
+	uint8_t  xor_byte;
+}tx_stm_data_t;
 
 /* Forward declaration of the ble_nus_t type. */
 typedef struct ble_nus_s ble_nus_t;
