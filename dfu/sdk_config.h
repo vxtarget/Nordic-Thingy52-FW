@@ -99,7 +99,7 @@
 // <e> NRF_BL_DFU_ENTER_METHOD_BUTTON - Enter DFU mode on button press.
 //==========================================================
 #ifndef NRF_BL_DFU_ENTER_METHOD_BUTTON
-#define NRF_BL_DFU_ENTER_METHOD_BUTTON 0
+#define NRF_BL_DFU_ENTER_METHOD_BUTTON 1
 #endif
 // <o> NRF_BL_DFU_ENTER_METHOD_BUTTON_PIN  - Button for entering DFU mode.
  
@@ -1175,7 +1175,7 @@
  
 
 #ifndef NRF_DFU_BLE_REQUIRES_BONDS
-#define NRF_DFU_BLE_REQUIRES_BONDS 0
+#define NRF_DFU_BLE_REQUIRES_BONDS 1
 #endif
 
 // </h> 
@@ -1188,7 +1188,7 @@
 // <i> Minimum GAP connection interval, in 1.25 ms units.
 
 #ifndef NRF_DFU_BLE_MIN_CONN_INTERVAL
-#define NRF_DFU_BLE_MIN_CONN_INTERVAL 12
+#define NRF_DFU_BLE_MIN_CONN_INTERVAL 6
 #endif
 
 // <o> NRF_DFU_BLE_MAX_CONN_INTERVAL - Maximum connection interval (units). 

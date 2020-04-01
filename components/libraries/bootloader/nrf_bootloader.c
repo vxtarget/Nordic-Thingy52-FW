@@ -61,6 +61,7 @@
 
 static nrf_dfu_observer_t m_user_observer; //<! Observer callback set by the user.
 static volatile bool m_flash_write_done;
+uint8_t button_dfu_flag = 0;
 
 #define SCHED_QUEUE_SIZE      32          /**< Maximum number of events in the scheduler queue. */
 #define SCHED_EVENT_DATA_SIZE NRF_DFU_SCHED_EVENT_DATA_SIZE /**< Maximum app_scheduler event size. */
@@ -359,6 +360,7 @@ static bool dfu_enter_check(void)
        (nrf_gpio_pin_read(NRF_BL_DFU_ENTER_METHOD_BUTTON_PIN) == 0))
     {
         NRF_LOG_DEBUG("DFU mode requested via button.");
+			  button_dfu_flag = 1;
         return true;
     }
 

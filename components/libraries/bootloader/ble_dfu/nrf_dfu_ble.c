@@ -121,6 +121,7 @@ static uint16_t           m_pkt_notif_target_cnt;                               
 static uint16_t           m_conn_handle = BLE_CONN_HANDLE_INVALID;                                  /**< Handle of the current connection. */
 static uint8_t            m_adv_handle  = BLE_GAP_ADV_SET_HANDLE_NOT_SET;                           /**< Advertising handle used to identify an advertising set. */
 static nrf_dfu_observer_t m_observer;                                                               /**< Observer function called on certain events. */
+extern uint8_t button_dfu_flag;
 
 static ble_gap_conn_params_t const m_gap_conn_params =
 {
@@ -1165,7 +1166,11 @@ uint32_t ble_dfu_transport_init(nrf_dfu_observer_t observer)
     }
     else
     {
-        APP_ERROR_HANDLER(NRF_ERROR_INTERNAL);
+		if(1 != button_dfu_flag)
+		{				
+			APP_ERROR_HANDLER(NRF_ERROR_INTERNAL);
+		}
+        
     }
 #else
     /* Copy out the new advertisement name when bonds are not required and the name is set. */
