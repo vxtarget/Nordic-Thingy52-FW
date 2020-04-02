@@ -294,7 +294,7 @@ uint32_t ble_nus_init(ble_nus_t * p_nus, ble_nus_init_t const * p_nus_init)
 	//无响应写
 	add_char_params.char_props.write_wo_resp = 1;
 	//无安全
-#if 1
+#ifdef BOND_ENABLE
     add_char_params.read_access  = SEC_MITM;
     add_char_params.write_access = SEC_MITM;
 #else
@@ -324,7 +324,7 @@ uint32_t ble_nus_init(ble_nus_t * p_nus, ble_nus_init_t const * p_nus_init)
 	//支持通知
 	add_char_params.char_props.notify = 1;
 
-#if 1
+#ifdef BOND_ENABLE
     add_char_params.read_access       = SEC_MITM;
     add_char_params.write_access      = SEC_MITM;
     add_char_params.cccd_write_access = SEC_MITM;

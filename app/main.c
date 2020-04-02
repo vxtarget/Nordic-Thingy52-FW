@@ -202,7 +202,9 @@ static uint16_t          m_batt_lvl_in_milli_volts; //!< Current battery level.
 #ifdef UART_TRANS
 static tx_stm_data_t uart_tx_data;
 #endif
+#ifdef BOND_ENABLE
 static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
+#endif
 static uint16_t     m_conn_handle        = BLE_CONN_HANDLE_INVALID;                 /**< Handle of the current connection. */
 static ble_uuid_t   m_adv_uuids[] =                                                 /**< Universally unique service identifiers. */
 {
@@ -437,7 +439,7 @@ void sys_bas_init(void)
     err_code = ble_bas_init(&m_bas, &bas_init);
     APP_ERROR_CHECK(err_code);
 }
-
+#ifdef BOND_ENABLE
 /**@brief Function for handling Peer Manager events.
  *
  * @param[in] p_evt  Peer Manager event.
@@ -497,6 +499,7 @@ static void pm_evt_handler(pm_evt_t const * p_evt)
             break;
     }
 }
+#endif
 
 void mac_address_get(void)
 {
@@ -584,7 +587,7 @@ static void gap_params_init(void)
     ret_code_t              err_code;
     ble_gap_conn_params_t   gap_conn_params;
     ble_gap_conn_sec_mode_t sec_mode;
-#if FIXED_PIN
+#ifdef FIXED_PIN
 	    //set fixed Passkey
     ble_opt_t ble_opt; 
     uint8_t g_ucBleTK[6] = "123456" ; 
@@ -609,7 +612,7 @@ static void gap_params_init(void)
 
     err_code = sd_ble_gap_ppcp_set(&gap_conn_params);
     APP_ERROR_CHECK(err_code);
-#if FIXED_PIN                                        	
+#ifdef FIXED_PIN                                        	
     //set fixed Passkey                        	
     err_code = sd_ble_opt_set(BLE_GAP_OPT_PASSKEY, &ble_opt);	
     APP_ERROR_CHECK(err_code);	
@@ -906,27 +909,6 @@ static void conn_params_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
-
-/**@brief Function for putting the chip into sleep mode.
- *
- * @note This function will not return.
- */
-static void sleep_mode_enter(void)
-{
-    ret_code_t err_code;;
-    err_code = bsp_indication_set(BSP_INDICATE_IDLE);
-    APP_ERROR_CHECK(err_code);
-
-    // Prepare wakeup buttons.
-    err_code = bsp_btn_ble_sleep_mode_prepare();
-    APP_ERROR_CHECK(err_code);
-
-    // Go to system-off mode (this function will not return; wakeup will cause a reset).
-    err_code = sd_power_system_off();
-    APP_ERROR_CHECK(err_code);
-}
-
-
 /**@brief Function for handling advertising events.
  *
  * @param[in] ble_adv_evt  Advertising event.
@@ -944,7 +926,6 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
             break; // BLE_ADV_EVT_FAST
 
         case BLE_ADV_EVT_IDLE:
-            //sleep_mode_enter();
             break; // BLE_ADV_EVT_IDLE
 
         default:
@@ -959,6 +940,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
  */
 static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
 {
+#ifdef BOND_ENABLE		
     ret_code_t err_code;
 #ifdef UART_TRANS	
     uint8_t cmd_buff[10];
@@ -1044,10 +1026,10 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
     	      //memcpy(&data_recived_buf[4],passkey,PASSKEY_LENGTH);
             passkey[PASSKEY_LENGTH] = 0;
 #ifdef UART_TRANS
-			cmd_buff[0] = 0x03;
-			cmd_buff[1] = 0x06;
-			memcpy(&cmd_buff[2],passkey,PASSKEY_LENGTH);
-    	    send_stm_data(1,cmd_buff);
+            cmd_buff[0] = 0x03;
+            cmd_buff[1] = 0x06;
+            memcpy(&cmd_buff[2],passkey,PASSKEY_LENGTH);
+            send_stm_data(1,cmd_buff);
 #endif
             NRF_LOG_INFO("Passkey: %s", nrf_log_push(passkey));
         } break;
@@ -1073,6 +1055,67 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             // No implementation needed.
             break;
     }
+#else
+    uint32_t err_code;
+
+    switch (p_ble_evt->header.evt_id)
+    {
+        case BLE_GAP_EVT_CONNECTED:
+            NRF_LOG_INFO("Connected");
+            m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
+            err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
+            APP_ERROR_CHECK(err_code);
+            break;
+
+        case BLE_GAP_EVT_DISCONNECTED:
+            NRF_LOG_INFO("Disconnected");
+            // LED indication will be changed when advertising starts.
+            m_conn_handle = BLE_CONN_HANDLE_INVALID;
+            break;
+
+        case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
+        {
+            NRF_LOG_DEBUG("PHY update request.");
+            ble_gap_phys_t const phys =
+            {
+                .rx_phys = BLE_GAP_PHY_AUTO,
+                .tx_phys = BLE_GAP_PHY_AUTO,
+            };
+            err_code = sd_ble_gap_phy_update(p_ble_evt->evt.gap_evt.conn_handle, &phys);
+            APP_ERROR_CHECK(err_code);
+        } break;
+
+        case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
+            // Pairing not supported
+            err_code = sd_ble_gap_sec_params_reply(m_conn_handle, BLE_GAP_SEC_STATUS_PAIRING_NOT_SUPP, NULL, NULL);
+            APP_ERROR_CHECK(err_code);
+            break;
+
+        case BLE_GATTS_EVT_SYS_ATTR_MISSING:
+            // No system attributes have been stored.
+            err_code = sd_ble_gatts_sys_attr_set(m_conn_handle, NULL, 0, 0);
+            APP_ERROR_CHECK(err_code);
+            break;
+
+        case BLE_GATTC_EVT_TIMEOUT:
+            // Disconnect on GATT Client timeout event.
+            err_code = sd_ble_gap_disconnect(p_ble_evt->evt.gattc_evt.conn_handle,
+                                             BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+            APP_ERROR_CHECK(err_code);
+            break;
+
+        case BLE_GATTS_EVT_TIMEOUT:
+            // Disconnect on GATT Server timeout event.
+            err_code = sd_ble_gap_disconnect(p_ble_evt->evt.gatts_evt.conn_handle,
+                                             BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+            APP_ERROR_CHECK(err_code);
+            break;
+
+        default:
+            // No implementation needed.
+            break;
+    }
+#endif		
 }
 
 
@@ -1100,7 +1143,7 @@ static void ble_stack_init(void)
     // Register a handler for BLE events.
     NRF_SDH_BLE_OBSERVER(m_ble_observer, APP_BLE_OBSERVER_PRIO, ble_evt_handler, NULL);
 }
-
+#ifdef BOND_ENABLE
 /**@brief Function for the Peer Manager initialization.
  */
 static void peer_manager_init(void)
@@ -1131,19 +1174,6 @@ static void peer_manager_init(void)
     APP_ERROR_CHECK(err_code);
 
     err_code = pm_register(pm_evt_handler);
-    APP_ERROR_CHECK(err_code);
-}
-
-#if 0
-/**@brief Clear bond information from persistent storage.
- */
-static void delete_bonds(void)
-{
-    ret_code_t err_code;
-
-    NRF_LOG_INFO("Erase bonds!");
-
-    err_code = pm_peers_delete();
     APP_ERROR_CHECK(err_code);
 }
 #endif
@@ -1451,7 +1481,9 @@ int main(void)
     read_name_record();
     mac_address_get();
 	//�豸����,���Ӱ�ȫģʽ,�������,ppcpĬ�����Ӳ���
+#ifdef BOND_ENABLE	
     peer_manager_init();
+#endif		
     gap_params_init();
 	//���Ӳ������º����ݳ��ȸ�ϸ
     gatt_init();
@@ -1462,7 +1494,6 @@ int main(void)
 	//���Ӳ������³�ʼ��
     conn_params_init();
 	
-
     // Start execution.
     //printf("\r\nUART started.\r\n");
     NRF_LOG_INFO("Debug logging for UART over RTT started.");
