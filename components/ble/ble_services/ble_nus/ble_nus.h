@@ -98,7 +98,8 @@ extern "C" {
 
 #define OPCODE_LENGTH        1
 #define HANDLE_LENGTH        2
-#define UART_TX_TAG          0x5A5A
+#define UART_TX_TAG          0x5A
+#define UART_TX_TAG2         0xA5
 
 /**@brief   Maximum length of data (in bytes) that can be transmitted to the peer by the Nordic UART service module. */
 #if defined(NRF_SDH_BLE_GATT_MAX_MTU_SIZE) && (NRF_SDH_BLE_GATT_MAX_MTU_SIZE != 0)

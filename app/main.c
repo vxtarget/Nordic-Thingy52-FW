@@ -125,6 +125,9 @@
 #define BLE_READ_I2C_HEAD               10
 #define BLE_READ_I2C_DATA               11
 
+#define BLE_DEF                         0
+#define BLE_OFF							1
+#define BLE_ON                          2
 
 #define APP_BLE_OBSERVER_PRIO           3                                           /**< Application's BLE observer priority. You shouldn't need to modify this value. */
 #define APP_BLE_CONN_CFG_TAG            1                                           /**< A tag identifying the SoftDevice BLE configuration. */
@@ -178,9 +181,23 @@
 
 #ifdef UART_TRANS
 //UART define 
-#define MAX_TEST_DATA_BYTES     (15U)                /**< max number of test bytes to be used for tx and rx. */
-#define UART_TX_BUF_SIZE 256                         /**< UART TX buffer size. */
-#define UART_RX_BUF_SIZE 256                         /**< UART RX buffer size. */
+#define MAX_TEST_DATA_BYTES            (15U)                /**< max number of test bytes to be used for tx and rx. */
+#define UART_TX_BUF_SIZE               256                         /**< UART TX buffer size. */
+#define UART_RX_BUF_SIZE               256                         /**< UART RX buffer size. */
+//CMD
+#define UART_CMD_BLE_CON_STA           0x01
+#define UART_CMD_BLE_PAIR_STA          0x02
+#define UART_CMD_PAIR_CODE             0x03
+#define UART_CMD_ADV_NAME              0x04
+#define UART_CMD_BAT_PERCENT           0x05
+#define UART_CMD_BLE_VERSION           0x06
+#define UART_CMD_CTL_BLE               0x07
+//VALUE
+#define VALUE_CONNECT                  0x01
+#define VALUE_DISCONNECT               0x02
+#define VALUE_SECCESS                  0x01
+#define VALUE_FAILED                   0x02
+
 #endif
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
@@ -189,9 +206,11 @@ NRF_BLE_GATT_DEF(m_gatt);                                                       
 NRF_BLE_QWR_DEF(m_qwr);                                                             /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
+APP_TIMER_DEF(m_1s_timer_id);
 
-static uint8_t one_second_counter=0;
+static volatile uint8_t one_second_counter=0;
 static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
+static volatile uint8_t ble_adv_switch_flag = BLE_DEF;
 static uint8_t mac_ascii[24];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 uint8_t ble_adv_name[BLENAMELEN+6] = "BixinKEY123456" ; 
@@ -199,9 +218,6 @@ static char DEVICE_NAME[20]="BixinKEY";
 
 static nrf_saadc_value_t adc_buf[2];
 static uint16_t          m_batt_lvl_in_milli_volts; //!< Current battery level.
-#ifdef UART_TRANS
-static tx_stm_data_t uart_tx_data;
-#endif
 #ifdef BOND_ENABLE
 static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #endif
@@ -219,9 +235,11 @@ static void advertising_start(void);
 static void twi_write_data(void);
 static void twi_read_data(void);
 #ifdef UART_TRANS
-static tx_stm_data_t uart_tx_data;
+static volatile uint8_t flag_uart_trans=1;
+static uint8_t uart_trans_buff[30];
+static uint8_t bak_buff[18];
 static void uart_put_data(uint8_t *pdata,uint8_t lenth);
-static void send_stm_data(uint8_t cmd_count,uint8_t *pdata);
+static void send_stm_data(uint8_t *pdata,uint8_t lenth);
 #endif
 
 /**@brief Handler for shutdown preparation.
@@ -464,6 +482,12 @@ static void pm_evt_handler(pm_evt_t const * p_evt)
 
             if (conn_sec_status.mitm_protected)
             {
+#ifdef UART_TRANS
+				bak_buff[0] = UART_CMD_BLE_PAIR_STA;
+				bak_buff[1] = 0x01;
+				bak_buff[2] = VALUE_SECCESS;
+                send_stm_data(bak_buff,bak_buff[1]);
+#endif
                 NRF_LOG_INFO("Link secured. Role: %d. conn_handle: %d, Procedure: %d",
                              ble_conn_state_role(p_evt->conn_handle),
                              p_evt->conn_handle,
@@ -489,6 +513,12 @@ static void pm_evt_handler(pm_evt_t const * p_evt)
         
         case PM_EVT_CONN_SEC_FAILED:
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
+#ifdef UART_TRANS
+			bak_buff[0] = UART_CMD_BLE_PAIR_STA;
+			bak_buff[1] = 0x01;
+			bak_buff[2] = VALUE_FAILED;
+    	    send_stm_data(bak_buff,bak_buff[1]);
+#endif
             break;
 
         case PM_EVT_PEERS_DELETE_SUCCEEDED:
@@ -575,6 +605,11 @@ static void timers_init(void)
                                 APP_TIMER_MODE_REPEATED,
                                 battery_level_meas_timeout_handler);
     APP_ERROR_CHECK(err_code);
+	  
+	err_code = app_timer_create(&m_1s_timer_id,
+                                APP_TIMER_MODE_REPEATED,
+                                one_second_timeout_hander);
+    APP_ERROR_CHECK(err_code);
 }
 
 /**@brief Function for the GAP initialization.
@@ -598,9 +633,6 @@ static void gap_params_init(void)
     err_code = sd_ble_gap_device_name_set(&sec_mode,
                                           (const uint8_t *)DEVICE_NAME,
                                           strlen(DEVICE_NAME));
-    APP_ERROR_CHECK(err_code);
-
-    err_code = sd_ble_gap_appearance_set(BLE_APPEARANCE_GENERIC_GLUCOSE_METER);
     APP_ERROR_CHECK(err_code);
 
     memset(&gap_conn_params, 0, sizeof(gap_conn_params));
@@ -854,6 +886,17 @@ static void services_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+/**@brief Function for starting application timers.
+ */
+static void application_timers_start(void)
+{
+    ret_code_t err_code;
+
+    // Start application timers.
+    err_code = app_timer_start(m_1s_timer_id, ON_SECOND_INTERVAL, NULL);
+    APP_ERROR_CHECK(err_code);
+}
+
 
 /**@brief Function for handling the Connection Parameter events.
  *
@@ -942,9 +985,6 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
 {
 #ifdef BOND_ENABLE		
     ret_code_t err_code;
-#ifdef UART_TRANS	
-    uint8_t cmd_buff[10];
-#endif
 	
     pm_handler_secure_on_connection(p_ble_evt);
 
@@ -955,10 +995,10 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             NRF_LOG_INFO("Disconnected");
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
 #ifdef UART_TRANS
-					  cmd_buff[0] = 0x01;
-					  cmd_buff[1] = 0x01;
-					  cmd_buff[2] = 0x02;
-    	      send_stm_data(1,cmd_buff);
+			bak_buff[0] = UART_CMD_BLE_CON_STA;
+            bak_buff[1] = 0x01;
+            bak_buff[2] = VALUE_DISCONNECT;
+    	    send_stm_data(bak_buff,bak_buff[1]);
 #endif
             // Check if the last connected peer had not used MITM, if so, delete its bond information.
             if (m_peer_to_be_deleted != PM_PEER_ID_INVALID)
@@ -973,12 +1013,12 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_CONNECTED:
         {
             NRF_LOG_INFO("Connected");
-    	      ble_evt_flag = BLE_CONNECT;
+    	    ble_evt_flag = BLE_CONNECT;
 #ifdef UART_TRANS
-					  cmd_buff[0] = 0x01;
-					  cmd_buff[1] = 0x01;
-					  cmd_buff[2] = 0x01;
-    	      send_stm_data(1,cmd_buff);
+            bak_buff[0] = UART_CMD_BLE_CON_STA;
+			bak_buff[1] = 0x01;
+			bak_buff[2] = VALUE_CONNECT;
+    	    send_stm_data(bak_buff,bak_buff[1]);
 #endif
             m_peer_to_be_deleted = PM_PEER_ID_INVALID;
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
@@ -1023,13 +1063,12 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         {
             char passkey[PASSKEY_LENGTH + 1];
             memcpy(passkey, p_ble_evt->evt.gap_evt.params.passkey_display.passkey, PASSKEY_LENGTH);
-    	      //memcpy(&data_recived_buf[4],passkey,PASSKEY_LENGTH);
             passkey[PASSKEY_LENGTH] = 0;
 #ifdef UART_TRANS
-            cmd_buff[0] = 0x03;
-            cmd_buff[1] = 0x06;
-            memcpy(&cmd_buff[2],passkey,PASSKEY_LENGTH);
-            send_stm_data(1,cmd_buff);
+            bak_buff[0] = UART_CMD_PAIR_CODE;
+            bak_buff[1] = PASSKEY_LENGTH;
+            memcpy(&bak_buff[2],passkey,PASSKEY_LENGTH);
+            send_stm_data(bak_buff,PASSKEY_LENGTH);
 #endif
             NRF_LOG_INFO("Passkey: %s", nrf_log_push(passkey));
         } break;
@@ -1188,7 +1227,7 @@ static void peer_manager_init(void)
 /**@snippet [Handling the data received over UART] */
 void uart_event_handle(app_uart_evt_t * p_event)
 {
-    static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
+    static uint8_t data_array[64];
     static uint8_t index = 0;
     uint32_t       err_code;
 
@@ -1369,10 +1408,12 @@ static void twi_read_data(void)
 static void idle_state_handle(void)
 {
     ret_code_t err_code;
-
-    err_code = nrf_ble_lesc_request_handler();
-    APP_ERROR_CHECK(err_code);
-
+    
+	  if((BLE_DEF == ble_adv_switch_flag)||(BLE_ON == ble_adv_switch_flag))
+		{
+			err_code = nrf_ble_lesc_request_handler();
+			APP_ERROR_CHECK(err_code);
+    }
     if (NRF_LOG_PROCESS() == false)
     {
         nrf_pwr_mgmt_run();
@@ -1407,6 +1448,17 @@ static void gpio_init(void)
     gpiote_init();
 }
 #ifdef UART_TRANS
+static uint8_t calcXor(uint8_t *buf, uint8_t len)
+{
+    uint8_t tmp = 0;
+	  uint8_t i;
+	  
+	  for(i=0;i<len;i++)
+	  {
+	      tmp^=buf[i];
+	  }
+		return tmp;
+}
 static void uart_put_data(uint8_t *pdata,uint8_t lenth)
 {
     uint32_t err_code;
@@ -1423,19 +1475,18 @@ static void uart_put_data(uint8_t *pdata,uint8_t lenth)
 			} while (err_code == NRF_ERROR_BUSY);
     }
 }
-static void send_stm_data(uint8_t cmd_count,uint8_t *pdata)
+
+static void send_stm_data(uint8_t *pdata,uint8_t lenth)
 {
-		uart_tx_data.data_lenth = 0;
-    uart_tx_data.tag_trans = UART_TX_TAG;
-    memcpy(&(uart_tx_data.cmd),pdata,6);
-	  for(uint8_t i=0;i<cmd_count;i++)
-	  {
-		    uart_tx_data.data_lenth += (cmd_count*2)+*(pdata+1);
-		}    
-		uart_tx_data.data_lenth++;
-		uart_tx_data.xor_byte = 0xff;
-		
-		uart_put_data((uint8_t *)&(uart_tx_data.tag_trans),uart_tx_data.data_lenth+4);
+    uart_trans_buff[0] = UART_TX_TAG;
+	uart_trans_buff[1] = UART_TX_TAG2;
+	uart_trans_buff[2] = 0x00;
+	uart_trans_buff[3] = lenth+3;
+	memcpy(&uart_trans_buff[4],pdata,lenth+2);
+	  
+	uart_trans_buff[uart_trans_buff[3]+3] = calcXor(uart_trans_buff,(uart_trans_buff[3]+3));
+    
+		uart_put_data(uart_trans_buff,uart_trans_buff[3]+4);
 }
 #endif
 
@@ -1493,7 +1544,8 @@ int main(void)
     advertising_init();
 	//���Ӳ������³�ʼ��
     conn_params_init();
-	
+
+    application_timers_start();
     // Start execution.
     //printf("\r\nUART started.\r\n");
     NRF_LOG_INFO("Debug logging for UART over RTT started.");

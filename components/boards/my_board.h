@@ -98,7 +98,7 @@ extern "C" {
 #define BATTERY_PG_STA_PIN	19
 #define BATTERY_ADC_PIN	5
 
-#define USB_INS_PIN        8
+#define USB_INS_PIN        7
 //TWI
 #define TWI_STATUS_GPIO 25
 #define MASTER_TWI_INST     0       //!< TWI interface used as a master accessing EEPROM memory.
@@ -113,8 +113,8 @@ extern "C" {
 
 //end HaoBTC
 
-#define RX_PIN_NUMBER  14
-#define TX_PIN_NUMBER  15
+#define RX_PIN_NUMBER  8
+#define TX_PIN_NUMBER  6
 #define CTS_PIN_NUMBER UART_PIN_DISCONNECTED
 #define RTS_PIN_NUMBER UART_PIN_DISCONNECTED
 #define HWFC           false
