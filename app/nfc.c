@@ -308,8 +308,9 @@ static void nfc_callback(void          * context,
     {
         case NFC_T4T_EVENT_FIELD_ON:
             NRF_LOG_INFO("NFC Tag has been selected. UART transmission can start...");
-            //bsp_board_led_on(BSP_BOARD_LED_0);
-
+#ifdef DEV_BSP
+            bsp_board_led_on(BSP_BOARD_LED_1);
+#endif
             // Flush all FIFOs. Data that was collected from UART channel before selecting
             // the tag is discarded.
             fifos_flush();
@@ -317,7 +318,9 @@ static void nfc_callback(void          * context,
 
         case NFC_T4T_EVENT_FIELD_OFF:
             NRF_LOG_INFO("NFC field lost. Data from UART will be discarded...");
-            //bsp_board_leds_off();
+#ifdef DEV_BSP
+            bsp_board_led_off(BSP_BOARD_LED_1);
+#endif
             break;
 
         case NFC_T4T_EVENT_DATA_IND:
@@ -368,12 +371,15 @@ static void nfc_callback(void          * context,
 										NRF_LOG_INFO("NFC TX data err_code: %d", err_code);
 										APP_ERROR_CHECK(err_code);
                 }                
-
-                //bsp_board_led_off(BSP_BOARD_LED_1);
+#ifdef DEV_BSP
+                bsp_board_led_off(BSP_BOARD_LED_2);
+#endif
             }
             else
             {
-                //bsp_board_led_on(BSP_BOARD_LED_1);
+#ifdef DEV_BSP
+                bsp_board_led_on(BSP_BOARD_LED_2);
+#endif
             }
             break;
 
