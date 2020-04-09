@@ -89,6 +89,7 @@
 #include "nrf_bootloader_info.h"
 #include "nrf_drv_gpiote.h"
 #include "nrf_power.h"
+#include "nrf_drv_wdt.h"
 
 #include "nrf_delay.h"
 #if defined (UART_PRESENT)
@@ -207,6 +208,8 @@ NRF_BLE_QWR_DEF(m_qwr);                                                         
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
 APP_TIMER_DEF(m_1s_timer_id);
+nrf_drv_wdt_channel_id m_channel_id;
+
 
 static volatile uint8_t one_second_counter=0;
 static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
@@ -371,7 +374,9 @@ void battery_level_meas_timeout_handler(void *p_context)
 
 void one_second_timeout_hander(void * p_context)
 {
-    UNUSED_PARAMETER(p_context);
+  UNUSED_PARAMETER(p_context);
+
+	nrf_drv_wdt_channel_feed(m_channel_id);  //feed wdt
 
 	one_second_counter++;
 	if(one_second_counter >=20)
@@ -606,7 +611,7 @@ static void timers_init(void)
                                 battery_level_meas_timeout_handler);
     APP_ERROR_CHECK(err_code);
 	  
-	err_code = app_timer_create(&m_1s_timer_id,
+    err_code = app_timer_create(&m_1s_timer_id,
                                 APP_TIMER_MODE_REPEATED,
                                 one_second_timeout_hander);
     APP_ERROR_CHECK(err_code);
@@ -1479,14 +1484,13 @@ static void uart_put_data(uint8_t *pdata,uint8_t lenth)
 static void send_stm_data(uint8_t *pdata,uint8_t lenth)
 {
     uart_trans_buff[0] = UART_TX_TAG;
-	uart_trans_buff[1] = UART_TX_TAG2;
-	uart_trans_buff[2] = 0x00;
-	uart_trans_buff[3] = lenth+3;
-	memcpy(&uart_trans_buff[4],pdata,lenth+2);
-	  
-	uart_trans_buff[uart_trans_buff[3]+3] = calcXor(uart_trans_buff,(uart_trans_buff[3]+3));
+    uart_trans_buff[1] = UART_TX_TAG2;
+    uart_trans_buff[2] = 0x00;
+    uart_trans_buff[3] = lenth+3;
+    memcpy(&uart_trans_buff[4],pdata,lenth+2);
+    uart_trans_buff[uart_trans_buff[3]+3] = calcXor(uart_trans_buff,(uart_trans_buff[3]+3));
     
-		uart_put_data(uart_trans_buff,uart_trans_buff[3]+4);
+    uart_put_data(uart_trans_buff,uart_trans_buff[3]+4);
 }
 #endif
 
@@ -1550,6 +1554,17 @@ static void buttons_leds_init(void)
 #endif
 /**@brief Application main function.
  */
+static void wdt_init(void)
+{
+    uint32_t err_code = NRF_SUCCESS;
+
+    nrf_drv_wdt_config_t config = NRF_DRV_WDT_DEAFULT_CONFIG;
+    err_code = nrf_drv_wdt_init(&config, NULL);
+    APP_ERROR_CHECK(err_code);
+    err_code = nrf_drv_wdt_channel_alloc(&m_channel_id);
+    APP_ERROR_CHECK(err_code);
+    nrf_drv_wdt_enable();
+}
 int main(void)
 {    
 #ifdef BUTTONLESS_ENABLED
@@ -1598,6 +1613,7 @@ int main(void)
     twi_master_init();
     nfc_init();
 
+    wdt_init();
     // Enter main loop.
     for (;;)
     {
