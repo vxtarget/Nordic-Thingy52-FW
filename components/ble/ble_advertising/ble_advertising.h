@@ -238,6 +238,7 @@ uint32_t ble_advertising_init(ble_advertising_t            * const p_advertising
  */
 void ble_advertising_conn_cfg_tag_set(ble_advertising_t * const p_advertising, uint8_t ble_cfg_tag);
 
+uint32_t ble_advertising_stop(ble_advertising_t * const p_advertising);
 /**@brief   Function for starting advertising.
  *
  * @details You can start advertising in any of the advertising modes that you enabled

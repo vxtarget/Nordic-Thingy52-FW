@@ -90,8 +90,9 @@
 #include "nrf_drv_gpiote.h"
 #include "nrf_power.h"
 #include "nrf_drv_wdt.h"
+#include "nrf_fstorage_sd.h"
+#include "nrf_fstorage.h"
 
-#include "nrf_delay.h"
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
 #endif
@@ -244,6 +245,24 @@ static uint8_t bak_buff[18];
 static void uart_put_data(uint8_t *pdata,uint8_t lenth);
 static void send_stm_data(uint8_t *pdata,uint8_t lenth);
 #endif
+
+/* Dummy data to write to flash. */
+static uint32_t m_data          = 0xBADC0FFE;
+static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt);
+
+
+NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
+{
+    /* Set a handler for fstorage events. */
+    .evt_handler = fstorage_evt_handler,
+
+    /* These below are the boundaries of the flash space assigned to this instance of fstorage.
+     * You must set these manually, even at runtime, before nrf_fstorage_init() is called.
+     * The function nrf5_flash_end_addr_get() can be used to retrieve the last address on the
+     * last page of flash available to write data. */
+    .start_addr = 0x6f000,
+    .end_addr   = 0x6ffff,
+};
 
 /**@brief Handler for shutdown preparation.
  *
@@ -1510,7 +1529,12 @@ static void advertising_start(void)
 
         APP_ERROR_CHECK(err_code);
 }
+static void advertising_stop(void)
+{
+    ret_code_t err_code = ble_advertising_stop(&m_advertising);
 
+    APP_ERROR_CHECK(err_code);
+}
 #ifdef DEV_BSP
 /**@brief Function for handling events from the BSP module.
  *
@@ -1552,6 +1576,94 @@ static void buttons_leds_init(void)
     APP_ERROR_CHECK(err_code);
 }
 #endif
+static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt)
+{
+    if (p_evt->result != NRF_SUCCESS)
+    {
+        NRF_LOG_INFO("--> Event received: ERROR while executing an fstorage operation.");
+        return;
+    }
+
+    switch (p_evt->id)
+    {
+        case NRF_FSTORAGE_EVT_WRITE_RESULT:
+        {
+            NRF_LOG_INFO("--> Event received: wrote %d bytes at address 0x%x.",
+                         p_evt->len, p_evt->addr);
+        } break;
+
+        case NRF_FSTORAGE_EVT_ERASE_RESULT:
+        {
+            NRF_LOG_INFO("--> Event received: erased %d page from address 0x%x.",
+                         p_evt->len, p_evt->addr);
+        } break;
+
+        default:
+            break;
+    }
+}
+/**@brief   Helper function to obtain the last address on the last page of the on-chip flash that
+ *          can be used to write user data.
+ */
+static uint32_t nrf5_flash_end_addr_get()
+{
+    uint32_t const bootloader_addr = BOOTLOADER_ADDRESS;
+    uint32_t const page_sz         = NRF_FICR->CODEPAGESIZE;
+    uint32_t const code_sz         = NRF_FICR->CODESIZE;
+
+    return (bootloader_addr != 0xFFFFFFFF ?
+            bootloader_addr : (code_sz * page_sz));
+}
+void wait_for_flash_ready(nrf_fstorage_t const * p_fstorage)
+{
+    /* While fstorage is busy, sleep and wait for an event. */
+    while (nrf_fstorage_is_busy(p_fstorage))
+    {
+        idle_state_handle();
+    }
+}
+static void flash_data_write(void)
+{
+	  ret_code_t rc;
+
+    rc = nrf_fstorage_write(&fstorage, 0x6f000, &m_data, sizeof(m_data), NULL);
+    APP_ERROR_CHECK(rc);
+
+    wait_for_flash_ready(&fstorage);
+}
+static void fs_init(void)
+{
+    ret_code_t rc;
+
+    nrf_fstorage_api_t * p_fs_api;
+
+	  p_fs_api = &nrf_fstorage_sd;
+    rc = nrf_fstorage_init(&fstorage, p_fs_api, NULL);
+    APP_ERROR_CHECK(rc);
+
+    /* It is possible to set the start and end addresses of an fstorage instance at runtime.
+     * They can be set multiple times, should it be needed. The helper function below can
+     * be used to determine the last address on the last page of flash memory available to
+     * store data. */
+    (void) nrf5_flash_end_addr_get();
+
+	  //flash_data_write();
+}
+static void ctl_advertising(void)
+{
+    uint32_t addr=0x6f000,len=4;
+	  uint8_t data[4];
+
+	  nrf_fstorage_read(&fstorage, addr, data, len);
+    if((0xFF == data[0])&&(0xFF == data[1])&&(0xFF == data[2])&&(0xFF == data[3]))
+    {
+        advertising_stop();
+    }
+    else
+    {
+        advertising_start();
+    }
+}
 /**@brief Application main function.
  */
 static void wdt_init(void)
@@ -1602,13 +1714,13 @@ int main(void)
     advertising_init();
 	//���Ӳ������³�ʼ��
     conn_params_init();
-
+    fs_init();
     application_timers_start();
     // Start execution.
     //printf("\r\nUART started.\r\n");
     NRF_LOG_INFO("Debug logging for UART over RTT started.");
 	//�����㲥
-    advertising_start();
+    ctl_advertising();
     
     twi_master_init();
     nfc_init();

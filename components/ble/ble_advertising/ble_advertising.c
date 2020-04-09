@@ -538,6 +538,18 @@ static bool phy_is_valid(uint32_t const * const p_phy)
     }
 }
 
+uint32_t ble_advertising_stop(ble_advertising_t * const p_advertising)
+{
+    uint32_t err_code;
+
+    err_code = sd_ble_gap_adv_stop(p_advertising->adv_handle);
+    if(err_code != NRF_SUCCESS)
+    {
+        return err_code;
+    }
+
+    return NRF_SUCCESS;
+}
 
 uint32_t ble_advertising_start(ble_advertising_t * const p_advertising,
                                ble_adv_mode_t            advertising_mode)
