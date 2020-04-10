@@ -100,11 +100,8 @@
 #include "nrf_uarte.h"
 #endif
 
-#define NAME_ADDR                       0x30000
-#define NAMETK_LEN                      18
-#define BLENAMELEN                      8
-
 #define MANUFACTURER_NAME               "币信"                      /**< Manufacturer. Will be passed to Device Information Service. */
+#define ADV_HEAD_NAME                   "BixinKEY"
 #define MODEL_NUMBER                    "one"                                     /**< Model Number string. Will be passed to Device Information Service. */
 #define MANUFACTURER_ID                 0x55AA55AA55                                /**< DUMMY Manufacturer ID. Will be passed to Device Information Service. You shall use the ID for your Company*/
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
@@ -171,6 +168,8 @@
 #define SEC_PARAM_MAX_KEY_SIZE          16                                          /**< Maximum encryption key size. */
 
 #define PASSKEY_LENGTH                  6                                           /**< Length of pass-key received by the stack for display. */
+#define HEAD_NAME_LENGTH                8
+#define ADV_NAME_LENGTH                 20
 
 #define DEAD_BEEF                       0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
@@ -217,8 +216,7 @@ static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
 static volatile uint8_t ble_adv_switch_flag = BLE_DEF;
 static uint8_t mac_ascii[24];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
-uint8_t ble_adv_name[BLENAMELEN+6] = "BixinKEY123456" ; 
-static char DEVICE_NAME[20]="BixinKEY";
+static char ble_adv_name[ADV_NAME_LENGTH];
 
 static nrf_saadc_value_t adc_buf[2];
 static uint16_t          m_batt_lvl_in_milli_volts; //!< Current battery level.
@@ -580,8 +578,8 @@ void mac_address_get(void)
     j++;
 	}
 	}    
-
-	memcpy(&DEVICE_NAME[8],mac_ascii,12);
+  memcpy(&ble_adv_name[0],ADV_HEAD_NAME,HEAD_NAME_LENGTH);
+	memcpy(&ble_adv_name[HEAD_NAME_LENGTH],mac_ascii,ADV_NAME_LENGTH-HEAD_NAME_LENGTH);
 }
 
 /**@brief Function for the Timer initialization.
@@ -627,8 +625,8 @@ static void gap_params_init(void)
     BLE_GAP_CONN_SEC_MODE_SET_OPEN(&sec_mode);
 
     err_code = sd_ble_gap_device_name_set(&sec_mode,
-                                          (const uint8_t *)DEVICE_NAME,
-                                          strlen(DEVICE_NAME));
+                                          (const uint8_t *)ble_adv_name,
+                                          ADV_NAME_LENGTH);
     APP_ERROR_CHECK(err_code);
 
     memset(&gap_conn_params, 0, sizeof(gap_conn_params));
