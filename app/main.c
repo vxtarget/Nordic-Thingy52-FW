@@ -433,33 +433,20 @@ void adc_configure(void)
  */
 void on_bas_evt(ble_bas_t * p_bas, ble_bas_evt_t * p_evt)
 {
-    ret_code_t err_code;
-
     switch (p_evt->evt_type)
     {
         case BLE_BAS_EVT_NOTIFICATION_ENABLED:
-            // Start battery timer
-            err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
-            APP_ERROR_CHECK(err_code);
+
             break; // BLE_BAS_EVT_NOTIFICATION_ENABLED
 
         case BLE_BAS_EVT_NOTIFICATION_DISABLED:
-            err_code = app_timer_stop(m_battery_timer_id);
-            APP_ERROR_CHECK(err_code);
+
             break; // BLE_BAS_EVT_NOTIFICATION_DISABLED
 
         default:
             // No implementation needed.
             break;
     }
-}
-
-void bas_timer_init(void)
-{
-    ret_code_t err_code;
-	
-    err_code = app_timer_create(&m_battery_timer_id, APP_TIMER_MODE_REPEATED, battery_level_meas_timeout_handler);
-    APP_ERROR_CHECK(err_code);
 }
 
 //battery service init
@@ -595,21 +582,6 @@ void mac_address_get(void)
 	}    
 
 	memcpy(&DEVICE_NAME[8],mac_ascii,12);
-}
-void read_name_record(void)
-{
-	uint32_t i ;
-	if (('U' == *(uint8_t *)NAME_ADDR)&&('2'==*((uint8_t *)NAME_ADDR+1)))
-	{
-    for(i=0;i<12;i++)
-    {
-    	ble_adv_name[i] = *((uint8_t *)NAME_ADDR+i) ;
-    }
-    for(i=12;i<NAMETK_LEN;i++)
-    {
-    	ble_adv_name[i-12] = *((uint8_t *)NAME_ADDR+i) ;
-    }	
-	}
 }
 
 /**@brief Function for the Timer initialization.
@@ -919,6 +891,10 @@ static void application_timers_start(void)
     // Start application timers.
     err_code = app_timer_start(m_1s_timer_id, ON_SECOND_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
+
+    // Start battery timer
+    err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
+    APP_ERROR_CHECK(err_code);
 }
 
 
@@ -982,14 +958,14 @@ static void conn_params_init(void)
  */
 static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
 {
-    ret_code_t err_code;
-
     switch (ble_adv_evt)
     {
         case BLE_ADV_EVT_FAST:
             NRF_LOG_INFO("Fast advertising");
-            err_code = bsp_indication_set(BSP_INDICATE_ADVERTISING);
+#ifdef DEV_BSP
+            ret_code_t err_code = bsp_indication_set(BSP_INDICATE_ADVERTISING);
             APP_ERROR_CHECK(err_code);
+#endif
             break; // BLE_ADV_EVT_FAST
 
         case BLE_ADV_EVT_IDLE:
@@ -1699,7 +1675,6 @@ int main(void)
 	//ע��BLEЭ��ջ�ص���������
     ble_stack_init();
     adc_configure();
-    read_name_record();
     mac_address_get();
 	//�豸����,���Ӱ�ȫģʽ,�������,ppcpĬ�����Ӳ���
 #ifdef BOND_ENABLE	
