@@ -125,8 +125,11 @@
 #define BLE_READ_I2C_DATA               11
 
 #define BLE_DEF                         0
-#define BLE_OFF                            1
+#define BLE_OFF                         1
 #define BLE_ON                          2
+
+#define INIT_VALUE                      0
+#define AUTH_VALUE                      1
 
 #define APP_BLE_OBSERVER_PRIO           3                                           /**< Application's BLE observer priority. You shouldn't need to modify this value. */
 #define APP_BLE_CONN_CFG_TAG            1                                           /**< A tag identifying the SoftDevice BLE configuration. */
@@ -247,7 +250,7 @@ static void send_stm_data(uint8_t *pdata,uint8_t lenth);
 /* Dummy data to write to flash. */
 static uint32_t m_data          = 0xBADC0FFE;
 static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt);
-
+static uint8_t bond_check_key_flag = INIT_VALUE;
 
 NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
 {
@@ -790,48 +793,48 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
         {
           if(data_recived_buf[0] == '?' || data_recived_buf[1] == '#' || data_recived_buf[2] == '#')
             {
-            data_recived_flag = false;    
-                        if(data_recived_len<9)
-                        {
-                            return;
-                        }
-                        else
-                        {
-                            msg_len=(uint32_t)((data_recived_buf[5] << 24) + 
-                                     (data_recived_buf[6] << 16) + 
-                                     (data_recived_buf[7] << 8) + 
-                                     (data_recived_buf[8]));
-                            pad = ((data_recived_len+63)/64)+8;
-                            if(msg_len >data_recived_len-pad)
-                            {
-                                msg_len -=data_recived_len-pad;                                
-                                reading = true;
-                            }            
-                            ble_evt_flag = BLE_RCV_DATA;
-                        }            
+                data_recived_flag = false;
+                if(data_recived_len<9)
+                {
+                    return;
+                }
+                else
+                {
+                    msg_len=(uint32_t)((data_recived_buf[5] << 24) +
+                             (data_recived_buf[6] << 16) +
+                             (data_recived_buf[7] << 8) +
+                             (data_recived_buf[8]));
+                    pad = ((data_recived_len+63)/64)+8;
+                    if(msg_len >data_recived_len-pad)
+                    {
+                        msg_len -=data_recived_len-pad;
+                        reading = true;
+                    }
+                    ble_evt_flag = BLE_RCV_DATA;
+                }
             }
         }
         else
         {
             if(data_recived_buf[0] == '?')
             {
-                        pad = (data_recived_len+63)/64;                        
-            if(data_recived_len-pad > msg_len)
-            {
-                reading = false;
-                            data_recived_len = msg_len + (msg_len+63)/64;
-                msg_len = 0;                            
-            }
-            else
-            {
-                msg_len -= pad;
-            }            
-            ble_evt_flag = BLE_RCV_DATA;
-            }
-                    else
-                    {
-                        reading = true;
-                    }
+                pad = (data_recived_len+63)/64;
+                if(data_recived_len-pad > msg_len)
+                {
+                    reading = false;
+                    data_recived_len = msg_len + (msg_len+63)/64;
+                    msg_len = 0;
+                }
+                else
+                {
+                    msg_len -= pad;
+                }
+                    ble_evt_flag = BLE_RCV_DATA;
+                }
+                else
+                {
+                    reading = true;
+                }
         }       
         twi_write_data();       
     }
@@ -1005,6 +1008,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_DISCONNECTED:
         {
             NRF_LOG_INFO("Disconnected");
+            bond_check_key_flag = INIT_VALUE;
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
 #ifdef UART_TRANS
             bak_buff[0] = UART_CMD_BLE_CON_STA;
@@ -1100,6 +1104,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
                           p_ble_evt->evt.gap_evt.params.auth_status.sm1_levels.lv4,
                           *((uint8_t *)&p_ble_evt->evt.gap_evt.params.auth_status.kdist_own),
                           *((uint8_t *)&p_ble_evt->evt.gap_evt.params.auth_status.kdist_peer));
+            bond_check_key_flag = AUTH_VALUE;
             break;
 
         default:
@@ -1421,10 +1426,13 @@ static void idle_state_handle(void)
 {
     ret_code_t err_code;
     
-      if((BLE_DEF == ble_adv_switch_flag)||(BLE_ON == ble_adv_switch_flag))
+    if((BLE_DEF == ble_adv_switch_flag)||(BLE_ON == ble_adv_switch_flag))
+    {
+        if(bond_check_key_flag != AUTH_VALUE)
         {
             err_code = nrf_ble_lesc_request_handler();
             APP_ERROR_CHECK(err_code);
+        }
     }
     if (NRF_LOG_PROCESS() == false)
     {
@@ -1645,7 +1653,7 @@ static void ctl_advertising(void)
       nrf_fstorage_read(&fstorage, addr, data, len);
     if((0xFF == data[0])&&(0xFF == data[1])&&(0xFF == data[2])&&(0xFF == data[3]))
     {
-        advertising_start();
+        advertising_stop();
     }
     else
     {
@@ -1707,7 +1715,7 @@ int main(void)
     // Enter main loop.
     for (;;)
     {
-            idle_state_handle();
+        idle_state_handle();
     }
 }
 
