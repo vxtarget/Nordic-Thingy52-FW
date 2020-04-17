@@ -159,7 +159,7 @@
 
 #define MAX_CONN_PARAM_UPDATE_COUNT     3                                           /**< Number of attempts before giving up the connection parameter negotiation. */
 
-#define LESC_DEBUG_MODE                 0                                           /**< Set to 1 to use LESC debug keys, allows you to use a sniffer to inspect traffic. */
+#define LESC_DEBUG_MODE                 0                                           /**< Set to 1 to use LESC debug keys, allows you to  use a sniffer to inspect traffic. */
 
 #define SEC_PARAM_BOND                  1                                           /**< Perform bonding. */
 #define SEC_PARAM_MITM                  1                                           /**< Man In The Middle protection required (applicable when display module is detected). */
@@ -237,8 +237,8 @@ static ble_uuid_t   m_adv_uuids[] =                                             
 };
 
 static void advertising_start(void);
-static void twi_write_data(void);
-static void twi_read_data(void);
+static void twi_write_data(void *p_event_data,uint16_t event_size);
+static void twi_read_data(void *p_event_data,uint16_t event_size);
 #ifdef UART_TRANS
 static volatile uint8_t flag_uart_trans=1;
 static uint8_t uart_trans_buff[30];
@@ -251,6 +251,8 @@ static void send_stm_data(uint8_t *pdata,uint8_t lenth);
 static uint32_t m_data          = 0xBADC0FFE;
 static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt);
 static uint8_t bond_check_key_flag = INIT_VALUE;
+static uint32_t msg_len =0;
+static ringbuffer_t m_ble_fifo;
 
 NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
 {
@@ -264,6 +266,82 @@ NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
     .start_addr = 0x6f000,
     .end_addr   = 0x6ffff,
 };
+
+
+static void create_ringBuffer(ringbuffer_t *ringBuf, uint8_t *buf, uint32_t buf_len)
+{
+    ringBuf->br         = 0;
+    ringBuf->bw         = 0;
+    ringBuf->btoRead    = 0;
+    ringBuf->source     = buf;
+    ringBuf->length     = buf_len;
+}
+
+static void clear_ringBuffer(ringbuffer_t *ringBuf)
+{
+    ringBuf->br         = 0;
+    ringBuf->bw         = 0;
+    ringBuf->btoRead    = 0;
+    memset((uint8_t *)ringBuf->source, 0, ringBuf->length); 
+}
+
+static uint32_t write_ringBuffer(uint8_t *buffer, uint32_t size, ringbuffer_t *ringBuf)
+{
+    uint32_t len            = 0;
+    uint32_t ringBuf_bw     = ringBuf->bw;
+    uint32_t ringBuf_len    = ringBuf->length;
+    uint8_t *ringBuf_source = ringBuf->source;
+ 
+    if( (ringBuf_bw + size) <= ringBuf_len  )
+    {
+        memcpy(ringBuf_source + ringBuf_bw, buffer, size);
+    }
+    else
+    {
+        len = ringBuf_len - ringBuf_bw;
+        memcpy(ringBuf_source + ringBuf_bw, buffer, len);
+        memcpy(ringBuf_source, buffer + ringBuf_bw, size - len);
+    }
+ 
+    ringBuf->bw = (ringBuf->bw + size) % ringBuf_len;
+    ringBuf->btoRead += size;
+ 
+    return size;
+}
+
+static uint32_t read_ringBuffer(uint8_t *buffer, uint32_t size, ringbuffer_t *ringBuf)
+{
+    uint32_t len            = 0;
+    uint32_t ringBuf_br     = ringBuf->br;
+    uint32_t ringBuf_len    = ringBuf->length;
+    uint8_t *ringBuf_source = ringBuf->source;
+ 
+    if( (ringBuf_br + size ) <= ringBuf_len )
+    {
+        memcpy(buffer, ringBuf_source + ringBuf_br, size);
+    }
+    else
+    {
+        len = ringBuf_len - ringBuf_br;
+        memcpy(buffer, ringBuf_source + ringBuf_br, len);
+        memcpy(buffer + len, ringBuf_source, size - len);
+    }
+ 
+    ringBuf->br = (ringBuf->br + size) % ringBuf_len;
+    ringBuf->btoRead -= size;
+ 
+    return size;
+}
+
+static uint32_t get_ringBuffer_btoRead(ringbuffer_t *ringBuf)
+{
+    return ringBuf->btoRead;
+}
+
+static uint32_t get_ringBuffer_length(ringbuffer_t *ringBuf)
+{
+    return ringBuf->length;
+}
 
 /**@brief Handler for shutdown preparation.
  *
@@ -777,6 +855,67 @@ static void ble_dfu_evt_handler(ble_dfu_buttonless_evt_type_t event)
  */
 /**@snippet [Handling the data received over BLE] */
 static void nus_data_handler(ble_nus_evt_t * p_evt)
+#if 1
+{
+    static bool reading = false;
+	uint32_t rcv_len;
+    uint8_t rcv_buff[244];
+	
+    if (p_evt->type == BLE_NUS_EVT_RX_DATA)
+    {       
+        //NRF_LOG_INFO("Received data from BLE NUS.");
+        //NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+        memcpy(&rcv_buff[0],p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
+        rcv_len=p_evt->params.rx_data.length;       
+       
+        if(reading == false)
+        {
+            if(rcv_buff[0] == '?' && rcv_buff[1] == '#' && rcv_buff[2] == '#')
+            {
+                data_recived_flag = false;    
+                if(rcv_len<9)
+                {
+                    return;
+                }
+                else
+                {
+                    msg_len=(uint32_t)((rcv_buff[5] << 24) + 
+                             (rcv_buff[6] << 16) + 
+                             (rcv_buff[7] << 8) + 
+                             (rcv_buff[8]));
+                    clear_ringBuffer(&m_ble_fifo);
+					write_ringBuffer(rcv_buff,rcv_len,&m_ble_fifo);
+                    //debug
+                    NRF_LOG_HEXDUMP_DEBUG(&data_recived_buf[0],8);
+                    NRF_LOG_HEXDUMP_DEBUG(&data_recived_buf[183],8);
+                    if(msg_len >rcv_len) 
+                    { 
+                        reading = true;							
+                    }					
+					ble_evt_flag = BLE_RCV_DATA;
+                }            
+            }
+        }
+        else 
+        {            
+            if(rcv_len < msg_len)
+            {
+                reading = true;
+                msg_len -=rcv_len; 
+                write_ringBuffer(rcv_buff,rcv_len,&m_ble_fifo);
+                //debug
+                NRF_LOG_HEXDUMP_DEBUG(&data_recived_buf[192],8);
+                NRF_LOG_HEXDUMP_DEBUG(&data_recived_buf[375],8);
+            }
+			else
+			{
+            	reading = false;
+			}
+            ble_evt_flag = BLE_RCV_DATA;      
+        }
+    }
+} 
+#else
 {
     static uint32_t msg_len;
     static bool reading = false;
@@ -836,9 +975,9 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                     reading = true;
                 }
         }       
-        twi_write_data();       
     }
 }
+#endif
 
 /**@brief Function for initializing services that will be used by the application.
  *
@@ -1374,48 +1513,64 @@ static void power_management_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
-static void twi_write_data(void)
+static void twi_write_data(void *p_event_data,uint16_t event_size)
 {
+    uint32_t lenth;
+	uint8_t buff[256];
+    
     if(BLE_RCV_DATA == ble_evt_flag)
     {
-        i2c_master_write(data_recived_buf,data_recived_len);
-        ble_evt_flag = BLE_SEND_I2C_DATA;
+        lenth = get_ringBuffer_btoRead(&m_ble_fifo);
+        if(lenth>192)
+        {
+            lenth = 192;
+        }
+        else
+        {
+            ble_evt_flag = BLE_SEND_I2C_DATA;
+        }
+        read_ringBuffer(buff,lenth,&m_ble_fifo);
+        NRF_LOG_HEXDUMP_DEBUG(buff,lenth);
+        i2c_master_write(buff,lenth);        
         RST_ONE_SECNOD_COUNTER();
-    }
+    } 
 }
 
-static void twi_read_data(void)
+static void twi_read_data(void *p_event_data,uint16_t event_size)
 {
     ret_code_t err_code;
-    uint32_t counter = 0;
     
   if(BLE_SEND_I2C_DATA == ble_evt_flag)
-  {
-    i2c_master_read();        
-    ble_evt_flag = BLE_READ_I2C_HEAD;
-        while(false == data_recived_flag)
-        {
-            counter++;
-            nrf_delay_ms(1);
-            if(counter > 500)return;
-        }
-        data_recived_flag=false;
-        ble_evt_flag = BLE_READ_I2C_DATA;
-    //Send data
-    do
     {
-      uint16_t length = (uint16_t)data_recived_len;
-      err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
-      if ((err_code != NRF_ERROR_INVALID_STATE) &&
-          (err_code != NRF_ERROR_RESOURCES) &&
-          (err_code != NRF_ERROR_NOT_FOUND))
-      {
-          APP_ERROR_CHECK(err_code);
-      }
-    } while (err_code == NRF_ERROR_RESOURCES);
-    ble_evt_flag = BLE_DEFAULT;
-      RST_ONE_SECNOD_COUNTER();
-  }    
+        if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==0)//can read
+        {
+            i2c_master_read();			 
+            ble_evt_flag = BLE_READ_I2C_HEAD;
+		    RST_ONE_SECNOD_COUNTER();
+        }
+    }
+    if(BLE_READ_I2C_HEAD == ble_evt_flag)
+    {
+        if(true == data_recived_flag)
+        {
+            data_recived_flag=false;
+            ble_evt_flag = BLE_READ_I2C_DATA;
+            //Send data
+            do
+            {
+                uint16_t length = (uint16_t)data_recived_len;
+                err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
+                if ((err_code != NRF_ERROR_INVALID_STATE) &&
+                  (err_code != NRF_ERROR_RESOURCES) &&
+                  (err_code != NRF_ERROR_NOT_FOUND))
+                {
+                    APP_ERROR_CHECK(err_code);
+                }
+            } while (err_code == NRF_ERROR_RESOURCES);
+            ble_evt_flag = BLE_DEFAULT;
+            RST_ONE_SECNOD_COUNTER();
+        }
+      }    
 }
 
 /**@brief Function for handling the idle state (main loop).
@@ -1441,7 +1596,7 @@ static void idle_state_handle(void)
 }
 void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
-    twi_read_data();
+    //twi_read_data();
 }
 
 static void gpiote_init(void)
@@ -1464,8 +1619,8 @@ static void gpio_init(void)
 {
     //Detect USB insert status.
     nrf_gpio_cfg_input(USB_INS_PIN,NRF_GPIO_PIN_NOPULL);
-    //nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
-    gpiote_init();
+    nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
+    //gpiote_init();
 }
 #ifdef UART_TRANS
 static uint8_t calcXor(uint8_t *buf, uint8_t len)
@@ -1511,6 +1666,7 @@ static void send_stm_data(uint8_t *pdata,uint8_t lenth)
 
 static void system_init()
 { 
+    create_ringBuffer(&m_ble_fifo,data_recived_buf,sizeof(data_recived_buf));
     gpio_init();
 #ifdef UART_TRANS    
     usr_uart_init();
@@ -1653,7 +1809,7 @@ static void ctl_advertising(void)
       nrf_fstorage_read(&fstorage, addr, data, len);
     if((0xFF == data[0])&&(0xFF == data[1])&&(0xFF == data[2])&&(0xFF == data[3]))
     {
-        advertising_stop();
+        advertising_start();
     }
     else
     {
@@ -1673,6 +1829,15 @@ static void wdt_init(void)
     APP_ERROR_CHECK(err_code);
     nrf_drv_wdt_enable();
 }
+static void scheduler_init(void)
+{
+    APP_SCHED_INIT(SCHED_MAX_EVENT_DATA_SIZE, SCHED_QUEUE_SIZE);
+}
+static void main_loop(void)
+{   
+    app_sched_event_put(NULL,NULL,twi_write_data);
+    app_sched_event_put(NULL,NULL,twi_read_data);
+}
 int main(void)
 {    
 #ifdef BUTTONLESS_ENABLED
@@ -1681,7 +1846,8 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 #endif
     // Initialize.
-    system_init();
+    system_init();    
+    scheduler_init();
     log_init();
 
     timers_init();
@@ -1715,6 +1881,8 @@ int main(void)
     // Enter main loop.
     for (;;)
     {
+        main_loop();
+		app_sched_execute();
         idle_state_handle();
     }
 }

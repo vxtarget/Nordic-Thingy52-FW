@@ -13,6 +13,14 @@ enum {
   NFCSTATE_READ_DATA,
 };
 
+typedef struct {
+    uint8_t *source;
+    uint32_t br;
+    uint32_t bw;
+    uint32_t btoRead;
+    uint32_t length;
+}ringbuffer_t;
+
 extern bool data_recived_flag;
 extern uint8_t data_recived_buf[1024];
 extern uint32_t data_recived_len;
