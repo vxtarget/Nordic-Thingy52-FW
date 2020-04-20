@@ -238,7 +238,7 @@ static ble_uuid_t   m_adv_uuids[] =                                             
 
 static void advertising_start(void);
 static void twi_write_data(void *p_event_data,uint16_t event_size);
-static void twi_read_data(void *p_event_data,uint16_t event_size);
+static void twi_read_data(void);
 #ifdef UART_TRANS
 static volatile uint8_t flag_uart_trans=1;
 static uint8_t uart_trans_buff[30];
@@ -885,9 +885,6 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                              (rcv_buff[8]));
                     clear_ringBuffer(&m_ble_fifo);
 					write_ringBuffer(rcv_buff,rcv_len,&m_ble_fifo);
-                    //debug
-                    NRF_LOG_HEXDUMP_DEBUG(&data_recived_buf[0],8);
-                    NRF_LOG_HEXDUMP_DEBUG(&data_recived_buf[183],8);
                     if(msg_len >rcv_len) 
                     { 
                         reading = true;							
@@ -903,9 +900,6 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 reading = true;
                 msg_len -=rcv_len; 
                 write_ringBuffer(rcv_buff,rcv_len,&m_ble_fifo);
-                //debug
-                NRF_LOG_HEXDUMP_DEBUG(&data_recived_buf[192],8);
-                NRF_LOG_HEXDUMP_DEBUG(&data_recived_buf[375],8);
             }
 			else
 			{
@@ -1530,48 +1524,45 @@ static void twi_write_data(void *p_event_data,uint16_t event_size)
             ble_evt_flag = BLE_SEND_I2C_DATA;
         }
         read_ringBuffer(buff,lenth,&m_ble_fifo);
-        NRF_LOG_HEXDUMP_DEBUG(buff,lenth);
-        i2c_master_write(buff,lenth);        
+        i2c_master_write(buff,lenth);
         RST_ONE_SECNOD_COUNTER();
     } 
 }
 
-static void twi_read_data(void *p_event_data,uint16_t event_size)
+static void twi_read_data(void)
 {
     ret_code_t err_code;
+    uint32_t counter = 0;
     
-  if(BLE_SEND_I2C_DATA == ble_evt_flag)
+    if(BLE_SEND_I2C_DATA == ble_evt_flag)
     {
-        if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==0)//can read
+        i2c_master_read();
+        ble_evt_flag = BLE_READ_I2C_HEAD;
+        while(false == data_recived_flag)
         {
-            i2c_master_read();			 
-            ble_evt_flag = BLE_READ_I2C_HEAD;
-		    RST_ONE_SECNOD_COUNTER();
+            counter++;
+            nrf_delay_ms(1);
+            if(counter > 500)return;
         }
+        data_recived_flag=false;
+        ble_evt_flag = BLE_READ_I2C_DATA;
+        //Send data
+        do
+        {
+          uint16_t length = (uint16_t)data_recived_len;
+          err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
+          if ((err_code != NRF_ERROR_INVALID_STATE) &&
+              (err_code != NRF_ERROR_RESOURCES) &&
+              (err_code != NRF_ERROR_NOT_FOUND))
+          {
+              APP_ERROR_CHECK(err_code);
+          }
+        } while (err_code == NRF_ERROR_RESOURCES);
+        ble_evt_flag = BLE_DEFAULT;
+        RST_ONE_SECNOD_COUNTER();
     }
-    if(BLE_READ_I2C_HEAD == ble_evt_flag)
-    {
-        if(true == data_recived_flag)
-        {
-            data_recived_flag=false;
-            ble_evt_flag = BLE_READ_I2C_DATA;
-            //Send data
-            do
-            {
-                uint16_t length = (uint16_t)data_recived_len;
-                err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
-                if ((err_code != NRF_ERROR_INVALID_STATE) &&
-                  (err_code != NRF_ERROR_RESOURCES) &&
-                  (err_code != NRF_ERROR_NOT_FOUND))
-                {
-                    APP_ERROR_CHECK(err_code);
-                }
-            } while (err_code == NRF_ERROR_RESOURCES);
-            ble_evt_flag = BLE_DEFAULT;
-            RST_ONE_SECNOD_COUNTER();
-        }
-      }    
 }
+
 
 /**@brief Function for handling the idle state (main loop).
  *
@@ -1596,7 +1587,7 @@ static void idle_state_handle(void)
 }
 void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
-    //twi_read_data();
+    twi_read_data();
 }
 
 static void gpiote_init(void)
@@ -1619,8 +1610,8 @@ static void gpio_init(void)
 {
     //Detect USB insert status.
     nrf_gpio_cfg_input(USB_INS_PIN,NRF_GPIO_PIN_NOPULL);
-    nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
-    //gpiote_init();
+    //nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
+    gpiote_init();
 }
 #ifdef UART_TRANS
 static uint8_t calcXor(uint8_t *buf, uint8_t len)
@@ -1638,16 +1629,16 @@ static void uart_put_data(uint8_t *pdata,uint8_t lenth)
 {
     uint32_t err_code;
     
-      while(lenth--)
+    while(lenth--)
+    {
+        do
         {
-            do
+            err_code = app_uart_put(*pdata++);
+            if ((err_code != NRF_SUCCESS) && (err_code != NRF_ERROR_BUSY))
             {
-                    err_code = app_uart_put(*pdata++);
-                    if ((err_code != NRF_SUCCESS) && (err_code != NRF_ERROR_BUSY))
-                    {
-                            APP_ERROR_CHECK(err_code);
-                    }
-            } while (err_code == NRF_ERROR_BUSY);
+                    APP_ERROR_CHECK(err_code);
+            }
+        } while (err_code == NRF_ERROR_BUSY);
     }
 }
 
@@ -1836,7 +1827,6 @@ static void scheduler_init(void)
 static void main_loop(void)
 {   
     app_sched_event_put(NULL,NULL,twi_write_data);
-    app_sched_event_put(NULL,NULL,twi_read_data);
 }
 int main(void)
 {    
