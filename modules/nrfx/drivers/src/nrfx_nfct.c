@@ -739,6 +739,7 @@ void nrfx_nfct_irq_handler(void)
             nrf_nfct_rx_frame_status_clear(NRFX_NFCT_FRAME_STATUS_RX_ALL_MASK);
         }
 
+        nrf_nfct_int_disable(NRFX_NFCT_RX_INT_MASK);
         NRFX_NFCT_CB_HANDLE(m_nfct_cb.config.cb, nfct_evt);
 
         /* Clear TXFRAMESTART EVENT so it can be checked in hal_nfc_send */
