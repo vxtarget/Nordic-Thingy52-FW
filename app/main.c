@@ -237,7 +237,11 @@ static ble_uuid_t   m_adv_uuids[] =                                             
 };
 
 static void advertising_start(void);
+#ifdef SCHED_ENABLE
 static void twi_write_data(void *p_event_data,uint16_t event_size);
+#else
+static void twi_write_data(void);
+#endif
 static void twi_read_data(void);
 #ifdef UART_TRANS
 static volatile uint8_t flag_uart_trans=1;
@@ -251,8 +255,12 @@ static void send_stm_data(uint8_t *pdata,uint8_t lenth);
 static uint32_t m_data          = 0xBADC0FFE;
 static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt);
 static uint8_t bond_check_key_flag = INIT_VALUE;
+#ifdef SCHED_ENABLE
 static uint32_t msg_len =0;
+#endif
+#ifdef SCHED_ENABLE
 static ringbuffer_t m_ble_fifo;
+#endif
 
 NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
 {
@@ -267,7 +275,7 @@ NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
     .end_addr   = 0x6ffff,
 };
 
-
+#ifdef SCHED_ENABLE
 static void create_ringBuffer(ringbuffer_t *ringBuf, uint8_t *buf, uint32_t buf_len)
 {
     ringBuf->br         = 0;
@@ -342,6 +350,7 @@ static uint32_t get_ringBuffer_length(ringbuffer_t *ringBuf)
 {
     return ringBuf->length;
 }
+#endif
 
 /**@brief Handler for shutdown preparation.
  *
@@ -855,14 +864,14 @@ static void ble_dfu_evt_handler(ble_dfu_buttonless_evt_type_t event)
  */
 /**@snippet [Handling the data received over BLE] */
 static void nus_data_handler(ble_nus_evt_t * p_evt)
-#if 1
+#ifdef SCHED_ENABLE
 {
     static bool reading = false;
 	uint32_t rcv_len;
     uint8_t rcv_buff[244];
 	
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
-    {       
+    {
         //NRF_LOG_INFO("Received data from BLE NUS.");
         //NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
         memcpy(&rcv_buff[0],p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
@@ -913,7 +922,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
     static uint32_t msg_len;
     static bool reading = false;
-        uint32_t pad;
+           uint32_t pad;
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {       
         static uint16_t index=0;    
@@ -924,7 +933,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 
         if(reading == false)
         {
-          if(data_recived_buf[0] == '?' || data_recived_buf[1] == '#' || data_recived_buf[2] == '#')
+            if(data_recived_buf[0] == '?' && data_recived_buf[1] == '#' && data_recived_buf[2] == '#')
             {
                 data_recived_flag = false;
                 if(data_recived_len<9)
@@ -962,13 +971,14 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 {
                     msg_len -= pad;
                 }
-                    ble_evt_flag = BLE_RCV_DATA;
-                }
-                else
-                {
-                    reading = true;
-                }
-        }       
+                ble_evt_flag = BLE_RCV_DATA;
+            }
+            else
+            {
+                reading = true;
+            }
+        }
+        twi_write_data();
     }
 }
 #endif
@@ -1506,7 +1516,7 @@ static void power_management_init(void)
     ret_code_t err_code = nrf_pwr_mgmt_init();
     APP_ERROR_CHECK(err_code);
 }
-
+#ifdef SCHED_ENABLE
 static void twi_write_data(void *p_event_data,uint16_t event_size)
 {
     uint32_t lenth;
@@ -1528,7 +1538,17 @@ static void twi_write_data(void *p_event_data,uint16_t event_size)
         RST_ONE_SECNOD_COUNTER();
     } 
 }
-
+#else
+static void twi_write_data(void)
+{
+    if(BLE_RCV_DATA == ble_evt_flag)
+    {
+        i2c_master_write(data_recived_buf,data_recived_len);
+        ble_evt_flag = BLE_SEND_I2C_DATA;
+        RST_ONE_SECNOD_COUNTER();
+    }
+}
+#endif
 static void twi_read_data(void)
 {
     ret_code_t err_code;
@@ -1657,7 +1677,9 @@ static void send_stm_data(uint8_t *pdata,uint8_t lenth)
 
 static void system_init()
 { 
+#ifdef SCHED_ENABLE
     create_ringBuffer(&m_ble_fifo,data_recived_buf,sizeof(data_recived_buf));
+#endif
     gpio_init();
 #ifdef UART_TRANS    
     usr_uart_init();
@@ -1820,6 +1842,7 @@ static void wdt_init(void)
     APP_ERROR_CHECK(err_code);
     nrf_drv_wdt_enable();
 }
+#ifdef SCHED_ENABLE
 static void scheduler_init(void)
 {
     APP_SCHED_INIT(SCHED_MAX_EVENT_DATA_SIZE, SCHED_QUEUE_SIZE);
@@ -1828,6 +1851,7 @@ static void main_loop(void)
 {   
     app_sched_event_put(NULL,NULL,twi_write_data);
 }
+#endif
 int main(void)
 {    
 #ifdef BUTTONLESS_ENABLED
@@ -1836,8 +1860,10 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 #endif
     // Initialize.
-    system_init();    
+    system_init();
+#ifdef SCHED_ENABLE
     scheduler_init();
+#endif
     log_init();
 
     timers_init();
@@ -1871,8 +1897,10 @@ int main(void)
     // Enter main loop.
     for (;;)
     {
+#ifdef SCHED_ENABLE
         main_loop();
 		app_sched_execute();
+#endif
         idle_state_handle();
     }
 }
