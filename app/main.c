@@ -177,7 +177,7 @@
 #define DEAD_BEEF                       0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
 #define ADC_REF_VOLTAGE_IN_MILLIVOLTS  600  //!< Reference voltage (in milli volts) used by ADC while doing conversion.
-#define DIODE_FWD_VOLT_DROP_MILLIVOLTS 270  //!< Typical forward voltage drop of the diode (Part no: SD103ATW-7-F) that is connected in series with the voltage supply. This is the voltage drop when the forward current is 1mA. Source: Data sheet of 'SURFACE MOUNT SCHOTTKY BARRIER DIODE ARRAY' available at www.diodes.com.
+#define DIODE_FWD_VOLT_DROP_MILLIVOLTS 90 //270=0.3v  //!< Typical forward voltage drop of the diode (Part no: SD103ATW-7-F) that is connected in series with the voltage supply. This is the voltage drop when the forward current is 1mA. Source: Data sheet of 'SURFACE MOUNT SCHOTTKY BARRIER DIODE ARRAY' available at www.diodes.com.
 #define ADC_RES_10BIT                  1024 //!< Maximum digital value for 10-bit ADC conversion.
 #define ADC_PRE_SCALING_COMPENSATION   6    //!< The ADC is configured to use VDD with 1/3 prescaling as input. And hence the result of conversion is to be multiplied by 3 to get the actual value of the battery voltage.
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE) \
@@ -223,6 +223,7 @@ static char ble_adv_name[ADV_NAME_LENGTH];
 
 static nrf_saadc_value_t adc_buf[2];
 static uint16_t          m_batt_lvl_in_milli_volts; //!< Current battery level.
+static uint8_t           bat_level_to_st=0;
 #ifdef BOND_ENABLE
 static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #endif
@@ -451,12 +452,37 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
         uint32_t err_code;
     
         adc_result = p_evt->data.done.p_buffer[0];
+        if (adc_result > 1024)
+        {
+            adc_result = 1024;
+        }
         err_code = nrf_drv_saadc_buffer_convert(p_evt->data.done.p_buffer,1);
         APP_ERROR_CHECK(err_code);
         m_batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
 
         percentage_batt_level = battery_level_in_percent(m_batt_lvl_in_milli_volts);
-    
+
+        switch(percentage_batt_level)
+        {
+            case 100:
+                bat_level_to_st = 4;
+                break;
+            case 75:
+                bat_level_to_st = 3;
+                break;
+            case 50:
+                bat_level_to_st = 2;
+                break;
+            case 25:
+                bat_level_to_st = 1;
+                break;
+            case 0:
+                bat_level_to_st = 0;
+                break;
+            default:
+                bat_level_to_st = 0;
+                break;
+        }
         err_code = ble_bas_battery_level_update(&m_bas,percentage_batt_level,BLE_CONN_HANDLE_ALL);
         if((err_code != NRF_SUCCESS)&&
             (err_code != NRF_ERROR_INVALID_STATE)&&
@@ -642,33 +668,33 @@ void mac_address_get(void)
     memcpy(mac,Mac_address.addr,6);
     for(i=0;i<6;i++)
     {
-    if((mac[i]>>4)<0x0a)
-    {
-    mac_ascii[j]=0x30+(mac[i]>>4);
-    j++;
-    }
-    else
-    {
-    mac_ascii[j]=0x31;
-    j++;
-    mac_ascii[j]=0x30+(mac[i]>>4)%0x0a;
-    j++;
-    }
+        if((mac[i]>>4)<0x0a)
+        {
+            mac_ascii[j]=0x30+(mac[i]>>4);
+            j++;
+        }
+        else
+        {
+            mac_ascii[j]=0x31;
+            j++;
+            mac_ascii[j]=0x30+(mac[i]>>4)%0x0a;
+            j++;
+        }
 
-    if((mac[i]&0x0f)<0x0a)
-    {
-        mac_ascii[j]=0x30+(mac[i]&0x0f);
-        j++;
-    }
-    else
-    {
-    mac_ascii[j]=0x31;
-    j++;
-    mac_ascii[j]=0x30+(mac[i]&0x0f)%0x0a;
-    j++;
-    }
+        if((mac[i]&0x0f)<0x0a)
+        {
+            mac_ascii[j]=0x30+(mac[i]&0x0f);
+            j++;
+        }
+        else
+        {
+            mac_ascii[j]=0x31;
+            j++;
+            mac_ascii[j]=0x30+(mac[i]&0x0f)%0x0a;
+            j++;
+        }
     }    
-  memcpy(&ble_adv_name[0],ADV_HEAD_NAME,HEAD_NAME_LENGTH);
+    memcpy(&ble_adv_name[0],ADV_HEAD_NAME,HEAD_NAME_LENGTH);
     memcpy(&ble_adv_name[HEAD_NAME_LENGTH],mac_ascii,ADV_NAME_LENGTH-HEAD_NAME_LENGTH);
 }
 
