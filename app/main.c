@@ -127,6 +127,7 @@
 #define BLE_DEF                         0
 #define BLE_OFF                         1
 #define BLE_ON                          2
+#define BLE_DISCON                      3
 
 #define INIT_VALUE                      0
 #define AUTH_VALUE                      1
@@ -152,7 +153,7 @@
 #define CONN_SUP_TIMEOUT                MSEC_TO_UNITS(4000, UNIT_10_MS)             /**< Connection supervisory timeout (4 seconds). */
 #define FIRST_CONN_PARAMS_UPDATE_DELAY  APP_TIMER_TICKS(100)                       /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
 #define NEXT_CONN_PARAMS_UPDATE_DELAY   APP_TIMER_TICKS(30000)                      /**< Time between each call to sd_ble_gap_conn_param_update after the first call (30 seconds). */
-#define ON_SECOND_INTERVAL              APP_TIMER_TICKS(1000)
+#define FIVE00_MS_INTERVAL              APP_TIMER_TICKS(500)
 
 #define RST_ONE_SECNOD_COUNTER()        one_second_counter = 0;
 #define TWI_TIMEOUT_COUNTER             10
@@ -210,13 +211,14 @@ NRF_BLE_GATT_DEF(m_gatt);                                                       
 NRF_BLE_QWR_DEF(m_qwr);                                                             /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
-APP_TIMER_DEF(m_1s_timer_id);
+APP_TIMER_DEF(m_500ms_timer_id);
 nrf_drv_wdt_channel_id m_channel_id;
 
 
 static volatile uint8_t one_second_counter=0;
 static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
 static volatile uint8_t ble_adv_switch_flag = BLE_DEF;
+static volatile uint8_t trans_info_flag = 0;
 static uint8_t mac_ascii[24];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 static char ble_adv_name[ADV_NAME_LENGTH];
@@ -224,6 +226,7 @@ static char ble_adv_name[ADV_NAME_LENGTH];
 static nrf_saadc_value_t adc_buf[2];
 static uint16_t          m_batt_lvl_in_milli_volts; //!< Current battery level.
 static uint8_t           bat_level_to_st=0;
+static uint8_t           backup_bat_level=0;
 #ifdef BOND_ENABLE
 static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #endif
@@ -250,10 +253,16 @@ static uint8_t uart_trans_buff[30];
 static uint8_t bak_buff[18];
 static void uart_put_data(uint8_t *pdata,uint8_t lenth);
 static void send_stm_data(uint8_t *pdata,uint8_t lenth);
+static uint8_t calcXor(uint8_t *buf, uint8_t len);
 #endif
+
+static void advertising_start(void);
+static void advertising_stop(void);
+static void idle_state_handle(void);
 
 /* Dummy data to write to flash. */
 static uint32_t m_data          = 0xBADC0FFE;
+static uint32_t m_data2         = 0xABABABAB;
 static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt);
 static uint8_t bond_check_key_flag = INIT_VALUE;
 #ifdef SCHED_ENABLE
@@ -275,6 +284,37 @@ NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
     .start_addr = 0x6f000,
     .end_addr   = 0x6ffff,
 };
+
+/**@brief   Helper function to obtain the last address on the last page of the on-chip flash that
+ *          can be used to write user data.
+ */
+static uint32_t nrf5_flash_end_addr_get()
+{
+    uint32_t const bootloader_addr = BOOTLOADER_ADDRESS;
+    uint32_t const page_sz         = NRF_FICR->CODEPAGESIZE;
+    uint32_t const code_sz         = NRF_FICR->CODESIZE;
+
+    return (bootloader_addr != 0xFFFFFFFF ?
+            bootloader_addr : (code_sz * page_sz));
+}
+void wait_for_flash_ready(nrf_fstorage_t const * p_fstorage)
+{
+    /* While fstorage is busy, sleep and wait for an event. */
+    while (nrf_fstorage_is_busy(p_fstorage))
+    {
+        idle_state_handle();
+    }
+}
+
+static void flash_data_write(uint32_t data)
+{
+    ret_code_t rc;
+
+    rc = nrf_fstorage_write(&fstorage, 0x6f000, &data, sizeof(m_data), NULL);
+    APP_ERROR_CHECK(rc);
+
+    wait_for_flash_ready(&fstorage);
+}
 
 #ifdef SCHED_ENABLE
 static void create_ringBuffer(ringbuffer_t *ringBuf, uint8_t *buf, uint32_t buf_len)
@@ -505,13 +545,79 @@ void battery_level_meas_timeout_handler(void *p_context)
     APP_ERROR_CHECK(err_code);
 }
 
-void one_second_timeout_hander(void * p_context)
+#ifdef UART_TRANS
+static void rsp_status()
 {
-  UNUSED_PARAMETER(p_context);
+    bak_buff[0]=0xA5;
+    bak_buff[1]=0x5A;
+    bak_buff[2]=0x01;
+    send_stm_data(bak_buff,3);
+}
+#endif
+void five00_ms_timeout_hander(void * p_context)
+{
+    static uint8_t count=0;
 
-    nrf_drv_wdt_channel_feed(m_channel_id);  //feed wdt
+    UNUSED_PARAMETER(p_context);
 
     one_second_counter++;
+
+    //feed wdt
+    nrf_drv_wdt_channel_feed(m_channel_id);
+
+#ifdef UART_TRANS
+    if(BLE_OFF == ble_adv_switch_flag)
+    {
+        ble_adv_switch_flag = BLE_DISCON;
+        sd_ble_gap_disconnect(m_conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+    }
+    else if(BLE_DISCON == ble_adv_switch_flag)
+    {
+        count++;
+        if(count>=4)
+        {
+            ble_adv_switch_flag = BLE_DEF;
+            count = 0;
+            advertising_stop();
+            rsp_status();
+            flash_data_write(m_data);
+        }
+    }
+    else if(BLE_ON == ble_adv_switch_flag)
+    {
+        ble_adv_switch_flag = BLE_DEF;
+        advertising_start();
+        rsp_status();
+        flash_data_write(m_data2);
+    }
+
+    if(UART_CMD_ADV_NAME == trans_info_flag)
+    {
+        trans_info_flag = 0;
+        bak_buff[0] = UART_CMD_ADV_NAME;
+        bak_buff[1] = 0x12;
+        memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
+        send_stm_data(bak_buff,bak_buff[1]);
+    }
+    else if(UART_CMD_BLE_VERSION == trans_info_flag)
+    {
+        trans_info_flag = 0;
+        bak_buff[0] = UART_CMD_BLE_VERSION;
+        bak_buff[1] = 0x05;
+        memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
+        send_stm_data(bak_buff,bak_buff[1]);
+    }
+    if(backup_bat_level != bat_level_to_st)
+    {
+        backup_bat_level = bat_level_to_st;
+        bak_buff[0] = UART_CMD_BAT_PERCENT;
+        bak_buff[1] = 0x01;
+        bak_buff[2] = bat_level_to_st;
+        send_stm_data(bak_buff,bak_buff[1]);
+    }
+
+#endif
+
     if(one_second_counter >=20)
     {
         one_second_counter=0;
@@ -716,9 +822,9 @@ static void timers_init(void)
                                 battery_level_meas_timeout_handler);
     APP_ERROR_CHECK(err_code);
       
-    err_code = app_timer_create(&m_1s_timer_id,
+    err_code = app_timer_create(&m_500ms_timer_id,
                                 APP_TIMER_MODE_REPEATED,
-                                one_second_timeout_hander);
+                                five00_ms_timeout_hander);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -1073,7 +1179,7 @@ static void application_timers_start(void)
     ret_code_t err_code;
 
     // Start application timers.
-    err_code = app_timer_start(m_1s_timer_id, ON_SECOND_INTERVAL, NULL);
+    err_code = app_timer_start(m_500ms_timer_id, FIVE00_MS_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
 
     // Start battery timer
@@ -1142,12 +1248,15 @@ static void conn_params_init(void)
  */
 static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
 {
+#ifdef DEV_BSP
+    ret_code_t err_code;
+#endif
     switch (ble_adv_evt)
     {
         case BLE_ADV_EVT_FAST:
             NRF_LOG_INFO("Fast advertising");
 #ifdef DEV_BSP
-            ret_code_t err_code = bsp_indication_set(BSP_INDICATE_ADVERTISING);
+            err_code = bsp_indication_set(BSP_INDICATE_ADVERTISING);
             APP_ERROR_CHECK(err_code);
 #endif
             break; // BLE_ADV_EVT_FAST
@@ -1415,7 +1524,8 @@ void uart_event_handle(app_uart_evt_t * p_event)
 {
     static uint8_t data_array[64];
     static uint8_t index = 0;
-    uint32_t       err_code;
+    static uint32_t lenth = 0;
+    uint8_t xor_byte;
 
     switch (p_event->evt_type)
     {
@@ -1423,29 +1533,60 @@ void uart_event_handle(app_uart_evt_t * p_event)
             UNUSED_VARIABLE(app_uart_get(&data_array[index]));
             index++;
 
-            if ((data_array[index - 1] == '\n') ||
-                (data_array[index - 1] == '\r') ||
-                (index >= m_ble_nus_max_data_len))
+            if(index==4)
             {
-                if (index > 1)
+                if((UART_TX_TAG != data_array[0])&&(UART_TX_TAG2 != data_array[1]))
                 {
-                    NRF_LOG_DEBUG("Ready to send data over BLE NUS");
-                    NRF_LOG_HEXDUMP_DEBUG(data_array, index);
-
-                    do
-                    {
-                        uint16_t length = (uint16_t)index;
-                        err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
-                        if ((err_code != NRF_ERROR_INVALID_STATE) &&
-                            (err_code != NRF_ERROR_RESOURCES) &&
-                            (err_code != NRF_ERROR_NOT_FOUND))
-                        {
-                            APP_ERROR_CHECK(err_code);
-                        }
-                    } while (err_code == NRF_ERROR_RESOURCES);
+                    index=0;
+                    return;
                 }
-
+                lenth = ((uint32_t)data_array[2]<<8)+data_array[3];
+            }
+			else if(index == lenth+4)
+            {
+                xor_byte = calcXor(data_array,index-1);
+                #if 1
+                if(xor_byte != data_array[index])
+                {
+                    index=0;
+                    return;
+                }
+                #endif
+                switch(data_array[4])
+                {
+                    case UART_CMD_CTL_BLE:
+                        if(BLE_ON == data_array[6])
+                        {
+                            ble_adv_switch_flag = BLE_ON;
+                        }else if(BLE_OFF == data_array[6])
+                        {
+                            ble_adv_switch_flag = BLE_OFF;
+                        }
+                        break;
+                    case UART_CMD_ADV_NAME:
+                        if(0 == data_array[6])
+                        {
+                            trans_info_flag = UART_CMD_ADV_NAME;
+                        }
+                        break;
+                    case UART_CMD_BLE_VERSION:
+                        if(0 == data_array[6])
+                        {
+                            trans_info_flag = UART_CMD_BLE_VERSION;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+                index=0;
+            }
+            if((UART_TX_TAG2 == data_array[0])&&(UART_TX_TAG == data_array[1]))
+            {
                 index = 0;
+                if(0x01 != data_array[1])
+                {
+                    return;
+                }
             }
             break;
 
@@ -1716,9 +1857,9 @@ static void system_init()
  */
 static void advertising_start(void)
 {
-        ret_code_t err_code = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
+    ret_code_t err_code = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
 
-        APP_ERROR_CHECK(err_code);
+    APP_ERROR_CHECK(err_code);
 }
 static void advertising_stop(void)
 {
@@ -1793,42 +1934,14 @@ static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt)
             break;
     }
 }
-/**@brief   Helper function to obtain the last address on the last page of the on-chip flash that
- *          can be used to write user data.
- */
-static uint32_t nrf5_flash_end_addr_get()
-{
-    uint32_t const bootloader_addr = BOOTLOADER_ADDRESS;
-    uint32_t const page_sz         = NRF_FICR->CODEPAGESIZE;
-    uint32_t const code_sz         = NRF_FICR->CODESIZE;
 
-    return (bootloader_addr != 0xFFFFFFFF ?
-            bootloader_addr : (code_sz * page_sz));
-}
-void wait_for_flash_ready(nrf_fstorage_t const * p_fstorage)
-{
-    /* While fstorage is busy, sleep and wait for an event. */
-    while (nrf_fstorage_is_busy(p_fstorage))
-    {
-        idle_state_handle();
-    }
-}
-static void flash_data_write(void)
-{
-      ret_code_t rc;
-
-    rc = nrf_fstorage_write(&fstorage, 0x6f000, &m_data, sizeof(m_data), NULL);
-    APP_ERROR_CHECK(rc);
-
-    wait_for_flash_ready(&fstorage);
-}
 static void fs_init(void)
 {
     ret_code_t rc;
 
     nrf_fstorage_api_t * p_fs_api;
 
-      p_fs_api = &nrf_fstorage_sd;
+    p_fs_api = &nrf_fstorage_sd;
     rc = nrf_fstorage_init(&fstorage, p_fs_api, NULL);
     APP_ERROR_CHECK(rc);
 
@@ -1838,19 +1951,20 @@ static void fs_init(void)
      * store data. */
     (void) nrf5_flash_end_addr_get();
 
-      //flash_data_write();
+      //flash_data_write(m_data);
 }
 static void ctl_advertising(void)
 {
     uint32_t addr=0x6f000,len=4;
-      uint8_t data[4];
+    uint8_t data[4];
 
-      nrf_fstorage_read(&fstorage, addr, data, len);
-    if((0xFF == data[0])&&(0xFF == data[1])&&(0xFF == data[2])&&(0xFF == data[3]))
+    nrf_fstorage_read(&fstorage, addr, data, len);
+    if(((0xFF == data[0])&&(0xFF == data[1])&&(0xFF == data[2])&&(0xFF == data[3]))||
+        ((0xFE == data[0])&&(0x0F == data[1])&&(0xDC == data[2])&&(0xBA == data[3])))
     {
         advertising_start();
     }
-    else
+    else if((0xAB == data[0])&&(0xAB == data[1])&&(0xAB == data[2])&&(0xAB == data[3]))
     {
         advertising_start();
     }
