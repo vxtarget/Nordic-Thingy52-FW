@@ -244,7 +244,7 @@ static void advertising_start(void);
 #ifdef SCHED_ENABLE
 static void twi_write_data(void *p_event_data,uint16_t event_size);
 #else
-static void twi_write_data(void);
+static void twi_write_data(uint8_t *pdata,uint32_t data_len);
 #endif
 static void twi_read_data(void);
 #ifdef UART_TRANS
@@ -999,34 +999,30 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 #ifdef SCHED_ENABLE
 {
     static bool reading = false;
-	uint32_t rcv_len;
-    uint8_t rcv_buff[244];
-	
+
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
-        //NRF_LOG_INFO("Received data from BLE NUS.");
-        //NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
-        memcpy(&rcv_buff[0],p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
-        rcv_len=p_evt->params.rx_data.length;       
+        NRF_LOG_INFO("Received data from BLE NUS.");
+        NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
        
         if(reading == false)
         {
-            if(rcv_buff[0] == '?' && rcv_buff[1] == '#' && rcv_buff[2] == '#')
+            if(p_evt->params.rx_data.p_data[0] == '?' && p_evt->params.rx_data.p_data[1] == '#' && p_evt->params.rx_data.p_data[2] == '#')
             {
                 data_recived_flag = false;    
-                if(rcv_len<9)
+                if(p_evt->params.rx_data.length<9)
                 {
                     return;
                 }
                 else
                 {
-                    msg_len=(uint32_t)((rcv_buff[5] << 24) + 
-                             (rcv_buff[6] << 16) + 
-                             (rcv_buff[7] << 8) + 
-                             (rcv_buff[8]));
+                    msg_len=(uint32_t)((p_evt->params.rx_data.p_data[5] << 24) +
+                             (p_evt->params.rx_data.p_data[6] << 16) +
+                             (p_evt->params.rx_data.p_data[7] << 8) +
+                             (p_evt->params.rx_data.p_data[8]));
                     clear_ringBuffer(&m_ble_fifo);
-					write_ringBuffer(rcv_buff,rcv_len,&m_ble_fifo);
-                    if(msg_len >rcv_len) 
+					write_ringBuffer(p_evt->params.rx_data.p_data,p_evt->params.rx_data.length,&m_ble_fifo);
+                    if(msg_len >p_evt->params.rx_data.length)
                     { 
                         reading = true;							
                     }					
@@ -1036,11 +1032,11 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
         }
         else 
         {            
-            if(rcv_len < msg_len)
+            if(p_evt->params.rx_data.length < msg_len)
             {
                 reading = true;
-                msg_len -=rcv_len; 
-                write_ringBuffer(rcv_buff,rcv_len,&m_ble_fifo);
+                msg_len -=p_evt->params.rx_data.length;
+                write_ringBuffer(p_evt->params.rx_data.p_data,p_evt->params.rx_data.length,&m_ble_fifo);
             }
 			else
 			{
@@ -1056,32 +1052,29 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
     static bool reading = false;
            uint32_t pad;
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
-    {       
-        static uint16_t index=0;    
-        //NRF_LOG_INFO("Received data from BLE NUS.");
-        //NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
-        memcpy(&data_recived_buf[index],p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
-        data_recived_len=p_evt->params.rx_data.length;          
+    {
+        NRF_LOG_INFO("Received data from BLE NUS.");
+        NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
 
         if(reading == false)
         {
-            if(data_recived_buf[0] == '?' && data_recived_buf[1] == '#' && data_recived_buf[2] == '#')
+            if(p_evt->params.rx_data.p_data[0] == '?' && p_evt->params.rx_data.p_data[1] == '#' && p_evt->params.rx_data.p_data[2] == '#')
             {
                 data_recived_flag = false;
-                if(data_recived_len<9)
+                if(p_evt->params.rx_data.length<9)
                 {
                     return;
                 }
                 else
                 {
-                    msg_len=(uint32_t)((data_recived_buf[5] << 24) +
-                             (data_recived_buf[6] << 16) +
-                             (data_recived_buf[7] << 8) +
-                             (data_recived_buf[8]));
-                    pad = ((data_recived_len+63)/64)+8;
-                    if(msg_len >data_recived_len-pad)
+                    msg_len=(uint32_t)((p_evt->params.rx_data.p_data[5] << 24) +
+                             (p_evt->params.rx_data.p_data[6] << 16) +
+                             (p_evt->params.rx_data.p_data[7] << 8) +
+                             (p_evt->params.rx_data.p_data[8]));
+                    pad = ((p_evt->params.rx_data.length+63)/64)+8;
+                    if(msg_len >p_evt->params.rx_data.length-pad)
                     {
-                        msg_len -=data_recived_len-pad;
+                        msg_len -=p_evt->params.rx_data.length-pad;
                         reading = true;
                     }
                     ble_evt_flag = BLE_RCV_DATA;
@@ -1090,13 +1083,13 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
         }
         else
         {
-            if(data_recived_buf[0] == '?')
+            if(p_evt->params.rx_data.p_data[0] == '?')
             {
-                pad = (data_recived_len+63)/64;
-                if(data_recived_len-pad > msg_len)
+                pad = (p_evt->params.rx_data.length+63)/64;
+                if(p_evt->params.rx_data.length-pad > msg_len)
                 {
                     reading = false;
-                    data_recived_len = msg_len + (msg_len+63)/64;
+                    p_evt->params.rx_data.length = msg_len + (msg_len+63)/64;
                     msg_len = 0;
                 }
                 else
@@ -1110,7 +1103,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 reading = true;
             }
         }
-        twi_write_data();
+        twi_write_data((uint8_t *)p_evt->params.rx_data.p_data,p_evt->params.rx_data.length);
     }
 }
 #endif
@@ -1706,11 +1699,11 @@ static void twi_write_data(void *p_event_data,uint16_t event_size)
     } 
 }
 #else
-static void twi_write_data(void)
+static void twi_write_data(uint8_t *pdata,uint32_t data_len)
 {
     if(BLE_RCV_DATA == ble_evt_flag)
     {
-        i2c_master_write(data_recived_buf,data_recived_len);
+        i2c_master_write(pdata,data_len);
         ble_evt_flag = BLE_SEND_I2C_DATA;
         RST_ONE_SECNOD_COUNTER();
     }
