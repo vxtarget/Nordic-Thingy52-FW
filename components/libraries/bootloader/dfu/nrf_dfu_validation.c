@@ -82,16 +82,27 @@ static pb_istream_t       m_pb_stream;
 static dfu_init_command_t const * mp_init = NULL;
 
 __ALIGN(4) extern const uint8_t pk[64];
-
+#ifdef THREE_KEY
+__ALIGN(4) extern const uint8_t pk1[64];
+__ALIGN(4) extern const uint8_t pk2[64];
+#endif
 /** @brief Value length structure holding the public key.
  *
  * @details The pk value pointed to is the public key present in dfu_public_key.c
  */
 static nrf_crypto_ecc_public_key_t                  m_public_key;
+#ifdef THREE_KEY
+static nrf_crypto_ecc_public_key_t                  m_public_key1;
+static nrf_crypto_ecc_public_key_t                  m_public_key2;
+#endif
 
 /** @brief Structure to hold a signature
  */
 static nrf_crypto_ecdsa_secp256r1_signature_t       m_signature;
+#ifdef THREE_KEY
+static nrf_crypto_ecdsa_secp256r1_signature_t       m_signature1;
+static nrf_crypto_ecdsa_secp256r1_signature_t       m_signature2;
+#endif
 
 /** @brief Structure to hold the hash for signature verification
  */
@@ -209,6 +220,10 @@ static void crypto_init(void)
 {
     ret_code_t err_code;
     uint8_t    pk_copy[sizeof(pk)];
+#ifdef THREE_KEY
+    uint8_t    pk1_copy[sizeof(pk)];
+    uint8_t    pk2_copy[sizeof(pk)];
+#endif
 
     if (m_crypto_initialized)
     {
@@ -221,11 +236,27 @@ static void crypto_init(void)
 
     // Convert public key to big-endian format for use in nrf_crypto.
     nrf_crypto_internal_double_swap_endian(pk_copy, pk, sizeof(pk) / 2);
-
+#ifdef THREE_KEY
+    nrf_crypto_internal_double_swap_endian(pk1_copy, pk1, sizeof(pk) / 2);
+    nrf_crypto_internal_double_swap_endian(pk2_copy, pk2, sizeof(pk) / 2);
+#endif
     err_code = nrf_crypto_ecc_public_key_from_raw(&g_nrf_crypto_ecc_secp256r1_curve_info,
                                                   &m_public_key,
                                                   pk_copy,
                                                   sizeof(pk));
+#ifdef THREE_KEY
+    err_code = nrf_crypto_ecc_public_key_from_raw(&g_nrf_crypto_ecc_secp256r1_curve_info,
+                                                  &m_public_key1,
+                                                  pk1_copy,
+                                                  sizeof(pk));
+    ASSERT(err_code == NRF_SUCCESS);
+
+    err_code = nrf_crypto_ecc_public_key_from_raw(&g_nrf_crypto_ecc_secp256r1_curve_info,
+	                                              &m_public_key2,
+	                                              pk2_copy,
+	                                              sizeof(pk));
+	  ASSERT(err_code == NRF_SUCCESS);
+#endif
     ASSERT(err_code == NRF_SUCCESS);
     UNUSED_PARAMETER(err_code);
 
@@ -377,21 +408,32 @@ static nrf_dfu_result_t nrf_dfu_validation_signature_check(dfu_signature_type_t 
     {
         return NRF_DFU_RES_CODE_OPERATION_FAILED;
     }
-
+#ifdef THREE_KEY
+    if (sizeof(m_signature) != (signature_len/3))
+#else
     if (sizeof(m_signature) != signature_len)
+#endif
     {
         return NRF_DFU_RES_CODE_OPERATION_FAILED;
     }
 
     // Prepare the signature received over the air.
+#ifdef THREE_KEY
+    memcpy(m_signature, p_signature, 64);
+    memcpy(m_signature1, p_signature+64, 64);
+    memcpy(m_signature2, p_signature+128, 64);
+#else
     memcpy(m_signature, p_signature, signature_len);
-
+#endif
     // Calculate the signature.
     NRF_LOG_INFO("Verify signature");
 
     // The signature is in little-endian format. Change it to big-endian format for nrf_crypto use.
     nrf_crypto_internal_double_swap_endian_in_place(m_signature, sizeof(m_signature) / 2);
-
+#ifdef THREE_KEY
+    nrf_crypto_internal_double_swap_endian_in_place(m_signature1, sizeof(m_signature) / 2);
+	nrf_crypto_internal_double_swap_endian_in_place(m_signature2, sizeof(m_signature) / 2);
+#endif
     err_code = nrf_crypto_ecdsa_verify(&verify_context,
                                        &m_public_key,
                                        m_sig_hash,
@@ -411,7 +453,28 @@ static nrf_dfu_result_t nrf_dfu_validation_signature_check(dfu_signature_type_t 
 
         return NRF_DFU_RES_CODE_INVALID_OBJECT;
     }
-
+#ifdef THREE_KEY
+    err_code = nrf_crypto_ecdsa_verify(&verify_context,
+                                       &m_public_key1,
+                                       m_sig_hash,
+                                       hash_len,
+                                       m_signature1,
+                                       sizeof(m_signature));
+    if (err_code != NRF_SUCCESS)
+    {
+        return NRF_DFU_RES_CODE_INVALID_OBJECT;
+    }
+    err_code = nrf_crypto_ecdsa_verify(&verify_context,
+                                       &m_public_key2,
+                                       m_sig_hash,
+                                       hash_len,
+                                       m_signature2,
+                                       sizeof(m_signature));
+	if (err_code != NRF_SUCCESS)
+	{
+		return NRF_DFU_RES_CODE_INVALID_OBJECT;
+	}
+#endif
     NRF_LOG_INFO("Image verified");
     return NRF_DFU_RES_CODE_SUCCESS;
 }
