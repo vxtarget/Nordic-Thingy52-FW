@@ -5874,6 +5874,9 @@
 
 // </h> 
 //==========================================================
+//
+
+#define THREE_KEY
 
 // <<< end of configuration section >>>
 #endif //SDK_CONFIG_H
