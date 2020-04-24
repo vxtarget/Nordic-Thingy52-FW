@@ -378,6 +378,9 @@ static nrf_dfu_result_t nrf_dfu_validation_signature_check(dfu_signature_type_t 
 {
     ret_code_t err_code;
     size_t     hash_len = NRF_CRYPTO_HASH_SIZE_SHA256;
+#ifdef THREE_KEY
+    int verify_pass_count = 0;
+#endif
 
     nrf_crypto_hash_context_t         hash_context   = {0};
     nrf_crypto_ecdsa_verify_context_t verify_context = {0};
@@ -451,29 +454,37 @@ static nrf_dfu_result_t nrf_dfu_validation_signature_check(dfu_signature_type_t 
         NRF_LOG_HEXDUMP_DEBUG(pk, sizeof(pk));
         NRF_LOG_FLUSH();
 
+#ifndef THREE_KEY
         return NRF_DFU_RES_CODE_INVALID_OBJECT;
-    }
+#endif
+    } 
 #ifdef THREE_KEY
+    else {
+        verify_pass_count += 1; 
+    }  
+
     err_code = nrf_crypto_ecdsa_verify(&verify_context,
                                        &m_public_key1,
                                        m_sig_hash,
                                        hash_len,
                                        m_signature1,
                                        sizeof(m_signature));
-    if (err_code != NRF_SUCCESS)
-    {
-        return NRF_DFU_RES_CODE_INVALID_OBJECT;
-    }
+    if (err_code == NRF_SUCCESS) {
+        verify_pass_count += 1; 
+    }  
+ 
     err_code = nrf_crypto_ecdsa_verify(&verify_context,
                                        &m_public_key2,
                                        m_sig_hash,
                                        hash_len,
                                        m_signature2,
                                        sizeof(m_signature));
-	if (err_code != NRF_SUCCESS)
-	{
-		return NRF_DFU_RES_CODE_INVALID_OBJECT;
+	if (err_code == NRF_SUCCESS) {
+        verify_pass_count += 1; 
 	}
+
+    if (verify_pass_count < 2) 
+        return NRF_DFU_RES_CODE_INVALID_OBJECT;
 #endif
     NRF_LOG_INFO("Image verified");
     return NRF_DFU_RES_CODE_SUCCESS;
