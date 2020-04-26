@@ -555,13 +555,35 @@ static void rsp_status()
 void five00_ms_timeout_hander(void * p_context)
 {
     static uint8_t count=0;
+    static uint8_t ble_name_flag=0;
 
     UNUSED_PARAMETER(p_context);
 
     one_second_counter++;
 
-    //feed wdt
-    nrf_drv_wdt_channel_feed(m_channel_id);
+    if(one_second_counter%2 == 0)
+    {
+        //feed wdt
+        nrf_drv_wdt_channel_feed(m_channel_id);
+
+        //BLE INFO
+        if(ble_name_flag == 0)
+        {
+            //BLE NAME
+            trans_info_flag = 0;
+            bak_buff[0] = UART_CMD_ADV_NAME;
+            bak_buff[1] = 0x12;
+            memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
+            send_stm_data(bak_buff,bak_buff[1]);
+            //BLE VERSION
+            trans_info_flag = 0;
+            bak_buff[0] = UART_CMD_BLE_VERSION;
+            bak_buff[1] = 0x05;
+            memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
+            send_stm_data(bak_buff,bak_buff[1]);
+            ble_name_flag = 1;
+        }
+    }
 
 #ifdef UART_TRANS
     if(BLE_OFF == ble_adv_switch_flag)
@@ -588,32 +610,17 @@ void five00_ms_timeout_hander(void * p_context)
         rsp_status();
         flash_data_write(m_data2);
     }
-
-    if(UART_CMD_ADV_NAME == trans_info_flag)
+    if(one_second_counter%4 == 0)
     {
-        trans_info_flag = 0;
-        bak_buff[0] = UART_CMD_ADV_NAME;
-        bak_buff[1] = 0x12;
-        memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
-        send_stm_data(bak_buff,bak_buff[1]);
+        if(backup_bat_level != bat_level_to_st)
+        {
+            backup_bat_level = bat_level_to_st;
+            bak_buff[0] = UART_CMD_BAT_PERCENT;
+            bak_buff[1] = 0x01;
+            bak_buff[2] = bat_level_to_st;
+            send_stm_data(bak_buff,bak_buff[1]);
+        }
     }
-    else if(UART_CMD_BLE_VERSION == trans_info_flag)
-    {
-        trans_info_flag = 0;
-        bak_buff[0] = UART_CMD_BLE_VERSION;
-        bak_buff[1] = 0x05;
-        memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
-        send_stm_data(bak_buff,bak_buff[1]);
-    }
-    if(backup_bat_level != bat_level_to_st)
-    {
-        backup_bat_level = bat_level_to_st;
-        bak_buff[0] = UART_CMD_BAT_PERCENT;
-        bak_buff[1] = 0x01;
-        bak_buff[2] = bat_level_to_st;
-        send_stm_data(bak_buff,bak_buff[1]);
-    }
-
 #endif
 
     if(one_second_counter >=20)
@@ -1558,18 +1565,6 @@ void uart_event_handle(app_uart_evt_t * p_event)
                         }else if(BLE_OFF == data_array[6])
                         {
                             ble_adv_switch_flag = BLE_OFF;
-                        }
-                        break;
-                    case UART_CMD_ADV_NAME:
-                        if(0 == data_array[6])
-                        {
-                            trans_info_flag = UART_CMD_ADV_NAME;
-                        }
-                        break;
-                    case UART_CMD_BLE_VERSION:
-                        if(0 == data_array[6])
-                        {
-                            trans_info_flag = UART_CMD_BLE_VERSION;
                         }
                         break;
                     default:
