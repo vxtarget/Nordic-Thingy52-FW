@@ -565,7 +565,7 @@ void five00_ms_timeout_hander(void * p_context)
     {
         //feed wdt
         nrf_drv_wdt_channel_feed(m_channel_id);
-
+#ifdef UART_TRANS
         //BLE INFO
         if(ble_name_flag == 0)
         {
@@ -583,6 +583,7 @@ void five00_ms_timeout_hander(void * p_context)
             send_stm_data(bak_buff,bak_buff[1]);
             ble_name_flag = 1;
         }
+#endif
     }
 
 #ifdef UART_TRANS
