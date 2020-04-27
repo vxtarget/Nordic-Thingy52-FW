@@ -259,6 +259,7 @@ static uint8_t calcXor(uint8_t *buf, uint8_t len);
 static void advertising_start(void);
 static void advertising_stop(void);
 static void idle_state_handle(void);
+static void adc_configure(void);
 
 /* Dummy data to write to flash. */
 static uint32_t m_data          = 0xBADC0FFE;
@@ -531,13 +532,17 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
         {
             APP_ERROR_HANDLER(err_code);
         }
+        
+        nrf_drv_saadc_uninit();
+		NRF_SAADC->INTENCLR = (SAADC_INTENCLR_END_Clear<<SAADC_INTENCLR_END_Pos) ;
+		NVIC_ClearPendingIRQ(SAADC_IRQn);
     }
 }
 
 void battery_level_meas_timeout_handler(void *p_context)
 {
     UNUSED_PARAMETER(p_context);
-    
+    adc_configure();
     ret_code_t err_code;
     err_code =  nrf_drv_saadc_sample();
     APP_ERROR_CHECK(err_code);
@@ -1996,8 +2001,7 @@ int main(void)
     buttons_leds_init();
 #endif
     power_management_init();
-    ble_stack_init();
-    adc_configure();
+    ble_stack_init();    
     mac_address_get();
 #ifdef BOND_ENABLE    
     peer_manager_init();
