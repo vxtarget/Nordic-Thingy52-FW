@@ -153,7 +153,7 @@
 #define CONN_SUP_TIMEOUT                MSEC_TO_UNITS(4000, UNIT_10_MS)             /**< Connection supervisory timeout (4 seconds). */
 #define FIRST_CONN_PARAMS_UPDATE_DELAY  APP_TIMER_TICKS(100)                       /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
 #define NEXT_CONN_PARAMS_UPDATE_DELAY   APP_TIMER_TICKS(30000)                      /**< Time between each call to sd_ble_gap_conn_param_update after the first call (30 seconds). */
-#define FIVE00_MS_INTERVAL              APP_TIMER_TICKS(500)
+#define ONE_SECOND_INTERVAL              APP_TIMER_TICKS(1000)
 
 #define RST_ONE_SECNOD_COUNTER()        one_second_counter = 0;
 #define TWI_TIMEOUT_COUNTER             10
@@ -211,7 +211,7 @@ NRF_BLE_GATT_DEF(m_gatt);                                                       
 NRF_BLE_QWR_DEF(m_qwr);                                                             /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
-APP_TIMER_DEF(m_500ms_timer_id);
+APP_TIMER_DEF(m_1s_timer_id);
 nrf_drv_wdt_channel_id m_channel_id;
 
 
@@ -244,7 +244,7 @@ static void advertising_start(void);
 #ifdef SCHED_ENABLE
 static void twi_write_data(void *p_event_data,uint16_t event_size);
 #else
-static void twi_write_data(uint8_t *pdata,uint32_t data_len);
+static void twi_write_data(void);
 #endif
 static void twi_read_data(void);
 #ifdef UART_TRANS
@@ -552,39 +552,16 @@ static void rsp_status()
     send_stm_data(bak_buff,3);
 }
 #endif
-void five00_ms_timeout_hander(void * p_context)
+void m_1s_timeout_hander(void * p_context)
 {
     static uint8_t count=0;
-    static uint8_t ble_name_flag=0;
 
     UNUSED_PARAMETER(p_context);
 
     one_second_counter++;
 
-    if(one_second_counter%2 == 0)
-    {
-        //feed wdt
-        nrf_drv_wdt_channel_feed(m_channel_id);
-#ifdef UART_TRANS
-        //BLE INFO
-        if(ble_name_flag == 0)
-        {
-            //BLE NAME
-            trans_info_flag = 0;
-            bak_buff[0] = UART_CMD_ADV_NAME;
-            bak_buff[1] = 0x12;
-            memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
-            send_stm_data(bak_buff,bak_buff[1]);
-            //BLE VERSION
-            trans_info_flag = 0;
-            bak_buff[0] = UART_CMD_BLE_VERSION;
-            bak_buff[1] = 0x05;
-            memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
-            send_stm_data(bak_buff,bak_buff[1]);
-            ble_name_flag = 1;
-        }
-#endif
-    }
+    //feed wdt
+    nrf_drv_wdt_channel_feed(m_channel_id);
 
 #ifdef UART_TRANS
     if(BLE_OFF == ble_adv_switch_flag)
@@ -611,17 +588,30 @@ void five00_ms_timeout_hander(void * p_context)
         rsp_status();
         flash_data_write(m_data2);
     }
-    if(one_second_counter%4 == 0)
+
+    if(0 == trans_info_flag)
     {
-        if(backup_bat_level != bat_level_to_st)
-        {
-            backup_bat_level = bat_level_to_st;
-            bak_buff[0] = UART_CMD_BAT_PERCENT;
-            bak_buff[1] = 0x01;
-            bak_buff[2] = bat_level_to_st;
-            send_stm_data(bak_buff,bak_buff[1]);
-        }
+        bak_buff[0] = UART_CMD_ADV_NAME;
+        bak_buff[1] = 0x12;
+        memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
+        send_stm_data(bak_buff,bak_buff[1]);
+
+        bak_buff[0] = UART_CMD_BLE_VERSION;
+        bak_buff[1] = 0x05;
+        memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
+        send_stm_data(bak_buff,bak_buff[1]);
+        trans_info_flag = 1;
     }
+
+    if(backup_bat_level != bat_level_to_st)
+    {
+        backup_bat_level = bat_level_to_st;
+        bak_buff[0] = UART_CMD_BAT_PERCENT;
+        bak_buff[1] = 0x01;
+        bak_buff[2] = bat_level_to_st;
+        send_stm_data(bak_buff,bak_buff[1]);
+    }
+
 #endif
 
     if(one_second_counter >=20)
@@ -828,9 +818,9 @@ static void timers_init(void)
                                 battery_level_meas_timeout_handler);
     APP_ERROR_CHECK(err_code);
       
-    err_code = app_timer_create(&m_500ms_timer_id,
+    err_code = app_timer_create(&m_1s_timer_id,
                                 APP_TIMER_MODE_REPEATED,
-                                five00_ms_timeout_hander);
+                                m_1s_timeout_hander);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -1060,33 +1050,35 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
     static uint32_t msg_len;
     static bool reading = false;
            uint32_t pad;
-           uint8_t *rcv_data=(uint8_t *)p_evt->params.rx_data.p_data;
-           uint32_t rcv_len=p_evt->params.rx_data.length;
+           //uint8_t *rcv_data=(uint8_t *)p_evt->params.rx_data.p_data;
+           //uint32_t rcv_len=p_evt->params.rx_data.length;
 
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
         NRF_LOG_INFO("Received data from BLE NUS.");
         NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+        data_recived_len = p_evt->params.rx_data.length;
+        memcpy(data_recived_buf,(uint8_t *)p_evt->params.rx_data.p_data,data_recived_len);
 
         if(reading == false)
         {
-            if(rcv_data[0] == '?' && rcv_data[1] == '#' && rcv_data[2] == '#')
+            if(data_recived_buf[0] == '?' && data_recived_buf[1] == '#' && data_recived_buf[2] == '#')
             {
                 data_recived_flag = false;
-                if(rcv_len<9)
+                if(data_recived_len<9)
                 {
                     return;
                 }
                 else
                 {
-                    msg_len=(uint32_t)((rcv_data[5] << 24) +
-                             (rcv_data[6] << 16) +
-                             (rcv_data[7] << 8) +
-                             (rcv_data[8]));
-                    pad = ((rcv_len+63)/64)+8;
-                    if(msg_len >rcv_len-pad)
+                    msg_len=(uint32_t)((data_recived_buf[5] << 24) +
+                             (data_recived_buf[6] << 16) +
+                             (data_recived_buf[7] << 8) +
+                             (data_recived_buf[8]));
+                    pad = ((data_recived_len+63)/64)+8;
+                    if(msg_len >data_recived_len-pad)
                     {
-                        msg_len -=rcv_len-pad;
+                        msg_len -=data_recived_len-pad;
                         reading = true;
                     }
                     ble_evt_flag = BLE_RCV_DATA;
@@ -1095,13 +1087,13 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
         }
         else
         {
-            if(rcv_data[0] == '?')
+            if(data_recived_buf[0] == '?')
             {
-                pad = (rcv_len+63)/64;
-                if(rcv_len-pad > msg_len)
+                pad = (data_recived_len+63)/64;
+                if(data_recived_len-pad > msg_len)
                 {
                     reading = false;
-                    rcv_len = msg_len + (msg_len+63)/64;
+                    data_recived_len = msg_len + (msg_len+63)/64;
                     msg_len = 0;
                 }
                 else
@@ -1115,7 +1107,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 reading = true;
             }
         }
-        twi_write_data(rcv_data,rcv_len);
+        twi_write_data();
     }
 }
 #endif
@@ -1184,7 +1176,7 @@ static void application_timers_start(void)
     ret_code_t err_code;
 
     // Start application timers.
-    err_code = app_timer_start(m_500ms_timer_id, FIVE00_MS_INTERVAL, NULL);
+    err_code = app_timer_start(m_1s_timer_id, ONE_SECOND_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
 
     // Start battery timer
@@ -1699,11 +1691,11 @@ static void twi_write_data(void *p_event_data,uint16_t event_size)
     } 
 }
 #else
-static void twi_write_data(uint8_t *pdata,uint32_t data_len)
+static void twi_write_data(void)
 {
     if(BLE_RCV_DATA == ble_evt_flag)
     {
-        i2c_master_write(pdata,data_len);
+        i2c_master_write(data_recived_buf,data_recived_len);
         ble_evt_flag = BLE_SEND_I2C_DATA;
         RST_ONE_SECNOD_COUNTER();
     }
