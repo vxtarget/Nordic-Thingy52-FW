@@ -11392,7 +11392,11 @@
  
 
 #ifndef NRF_SDH_BLE_SERVICE_CHANGED
+#ifdef BUTTONLESS_ENABLED
 #define NRF_SDH_BLE_SERVICE_CHANGED 1
+#else
+#define NRF_SDH_BLE_SERVICE_CHANGED 0
+#endif
 #endif
 
 // </h> 
