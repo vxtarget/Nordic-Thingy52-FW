@@ -219,6 +219,7 @@ static volatile uint8_t one_second_counter=0;
 static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
 static volatile uint8_t ble_adv_switch_flag = BLE_DEF;
 static volatile uint8_t trans_info_flag = 0;
+static volatile uint8_t ble_reset_flag=0;
 static uint8_t mac_ascii[24];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 static char ble_adv_name[ADV_NAME_LENGTH];
@@ -564,7 +565,14 @@ void m_1s_timeout_hander(void * p_context)
     UNUSED_PARAMETER(p_context);
 
     one_second_counter++;
-
+    
+    if(ble_reset_flag>=1)
+    {
+        ble_reset_flag++;
+        if(ble_reset_flag>4)
+            ble_reset_flag = 0;
+    }
+    
     //feed wdt
     nrf_drv_wdt_channel_feed(m_channel_id);
 
@@ -1087,11 +1095,17 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                         reading = true;
                     }
                     ble_evt_flag = BLE_RCV_DATA;
+                    ble_reset_flag = 1;
                 }
             }
         }
         else
         {
+            if(ble_reset_flag >2)
+            {
+                ble_reset_flag = 0;
+                reading = false;
+            }
             if(data_recived_buf[0] == '?')
             {
                 pad = (data_recived_len+63)/64;
@@ -1106,10 +1120,11 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                     msg_len -= pad;
                 }
                 ble_evt_flag = BLE_RCV_DATA;
+                ble_reset_flag = 1;
             }
             else
             {
-                reading = true;
+                reading = false;
             }
         }
         twi_write_data();
