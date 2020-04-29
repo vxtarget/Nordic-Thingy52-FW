@@ -142,6 +142,7 @@
 #define SCHED_MAX_EVENT_DATA_SIZE       64             //!< Maximum size of the scheduler event data.
 #define SCHED_QUEUE_SIZE                20                                          //!< Size of the scheduler queue.
 
+#define RCV_DATA_TIMEOUT_INTERVAL       APP_TIMER_TICKS(100)
 #define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(3000)                      /**< Battery level measurement interval (ticks). */
 #define MIN_BATTERY_LEVEL               81                                          /**< Minimum battery level as returned by the simulated measurement function. */
 #define MAX_BATTERY_LEVEL               100                                         /**< Maximum battery level as returned by the simulated measurement function. */
@@ -203,6 +204,10 @@
 #define VALUE_SECCESS                  0x01
 #define VALUE_FAILED                   0x02
 
+//DATA FLAG
+#define DATA_INIT                       0x00
+#define DATA_HEAD                       0x01
+
 #endif
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
@@ -211,6 +216,7 @@ NRF_BLE_GATT_DEF(m_gatt);                                                       
 NRF_BLE_QWR_DEF(m_qwr);                                                             /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                                 /**< Advertising module instance. */
 APP_TIMER_DEF(m_battery_timer_id);                                                  /**< Battery timer. */
+APP_TIMER_DEF(m_100ms_timer_id);                                                    /**< 100ms timer. */
 APP_TIMER_DEF(m_1s_timer_id);
 nrf_drv_wdt_channel_id m_channel_id;
 
@@ -267,6 +273,7 @@ static uint32_t m_data          = 0xBADC0FFE;
 static uint32_t m_data2         = 0xABABABAB;
 static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt);
 static uint8_t bond_check_key_flag = INIT_VALUE;
+static uint8_t rcv_head_flag = 0;
 
 #ifdef SCHED_ENABLE
 static ringbuffer_t m_ble_fifo;
@@ -558,20 +565,28 @@ static void rsp_status()
     send_stm_data(bak_buff,3);
 }
 #endif
+void m_100ms_timeout_hander(void * p_context)
+{
+    UNUSED_PARAMETER(p_context);
+    static uint8_t count=0;
+    
+    if(1 == ble_reset_flag)
+    {
+        count++;
+        if(count >1)
+        {
+            ble_reset_flag = 0;
+            rcv_head_flag = DATA_INIT;
+        }
+    }
+}
 void m_1s_timeout_hander(void * p_context)
 {
     static uint8_t count=0;
 
     UNUSED_PARAMETER(p_context);
 
-    one_second_counter++;
-    
-    if(ble_reset_flag>=1)
-    {
-        ble_reset_flag++;
-        if(ble_reset_flag>4)
-            ble_reset_flag = 0;
-    }
+    one_second_counter++;    
     
     //feed wdt
     nrf_drv_wdt_channel_feed(m_channel_id);
@@ -813,30 +828,6 @@ void mac_address_get(void)
     memcpy(&ble_adv_name[HEAD_NAME_LENGTH],mac_ascii,ADV_NAME_LENGTH-HEAD_NAME_LENGTH);
 }
 
-/**@brief Function for the Timer initialization.
- *
- * @details Initializes the timer module. This creates and starts application timers.
- */
-static void timers_init(void)
-{
-    ret_code_t err_code;
-
-    // Initialize timer module.
-    err_code = app_timer_init();
-    APP_ERROR_CHECK(err_code);
-
-    // Create timers.
-    err_code = app_timer_create(&m_battery_timer_id,
-                                APP_TIMER_MODE_REPEATED,
-                                battery_level_meas_timeout_handler);
-    APP_ERROR_CHECK(err_code);
-      
-    err_code = app_timer_create(&m_1s_timer_id,
-                                APP_TIMER_MODE_REPEATED,
-                                m_1s_timeout_hander);
-    APP_ERROR_CHECK(err_code);
-}
-
 /**@brief Function for the GAP initialization.
  *
  * @details This function sets up all the necessary GAP (Generic Access Profile) parameters of the
@@ -1061,7 +1052,6 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 #else
 {
     static uint32_t msg_len;
-    static bool reading = false;
            uint32_t pad;
            //uint8_t *rcv_data=(uint8_t *)p_evt->params.rx_data.p_data;
            //uint32_t rcv_len=p_evt->params.rx_data.length;
@@ -1073,7 +1063,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
         data_recived_len = p_evt->params.rx_data.length;
         memcpy(data_recived_buf,(uint8_t *)p_evt->params.rx_data.p_data,data_recived_len);
 
-        if(reading == false)
+        if(rcv_head_flag == DATA_INIT)
         {
             if(data_recived_buf[0] == '?' && data_recived_buf[1] == '#' && data_recived_buf[2] == '#')
             {
@@ -1092,7 +1082,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                     if(msg_len >data_recived_len-pad)
                     {
                         msg_len -=data_recived_len-pad;
-                        reading = true;
+                        rcv_head_flag = DATA_HEAD;
                     }
                     ble_evt_flag = BLE_RCV_DATA;
                     ble_reset_flag = 1;
@@ -1100,18 +1090,13 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
             }
         }
         else
-        {
-            if(ble_reset_flag >2)
-            {
-                ble_reset_flag = 0;
-                reading = false;
-            }
+        {            
             if(data_recived_buf[0] == '?')
             {
                 pad = (data_recived_len+63)/64;
                 if(data_recived_len-pad > msg_len)
                 {
-                    reading = false;
+                    rcv_head_flag = DATA_INIT;
                     data_recived_len = msg_len + (msg_len+63)/64;
                     msg_len = 0;
                 }
@@ -1124,7 +1109,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
             }
             else
             {
-                reading = false;
+                rcv_head_flag = DATA_INIT;
             }
         }
         twi_write_data();
@@ -1189,6 +1174,34 @@ static void services_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+/**@brief Function for the Timer initialization.
+ *
+ * @details Initializes the timer module. This creates and starts application timers.
+ */
+static void timers_init(void)
+{
+    ret_code_t err_code;
+
+    // Initialize timer module.
+    err_code = app_timer_init();
+    APP_ERROR_CHECK(err_code);
+
+    // Create timers.
+    err_code = app_timer_create(&m_battery_timer_id,
+                                APP_TIMER_MODE_REPEATED,
+                                battery_level_meas_timeout_handler);
+    APP_ERROR_CHECK(err_code);
+      
+    err_code = app_timer_create(&m_1s_timer_id,
+                                APP_TIMER_MODE_REPEATED,
+                                m_1s_timeout_hander);
+    APP_ERROR_CHECK(err_code);
+    
+    err_code = app_timer_create(&m_100ms_timer_id,
+                                APP_TIMER_MODE_REPEATED,
+                                m_100ms_timeout_hander);
+    APP_ERROR_CHECK(err_code);
+}
 /**@brief Function for starting application timers.
  */
 static void application_timers_start(void)
@@ -1202,6 +1215,10 @@ static void application_timers_start(void)
     // Start battery timer
     err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
+    
+    // Start 100ms timer
+    err_code = app_timer_start(m_100ms_timer_id, RCV_DATA_TIMEOUT_INTERVAL, NULL);
+    APP_ERROR_CHECK(err_code);    
 }
 
 
