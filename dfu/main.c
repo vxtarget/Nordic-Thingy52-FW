@@ -151,8 +151,8 @@ int main(void)
     uint32_t ret_val;
 
     // Must happen before flash protection is applied, since it edits a protected page.
-    nrf_bootloader_mbr_addrs_populate();
-
+    nrf_bootloader_mbr_addrs_populate();   
+    
     // Protect MBR and bootloader code from being overwritten.
     ret_val = nrf_bootloader_flash_protect(0, MBR_SIZE, false);
     APP_ERROR_CHECK(ret_val);
