@@ -565,16 +565,24 @@ static void rsp_status()
     send_stm_data(bak_buff,3);
 }
 #endif
+static volatile uint8_t count=0;
 void m_100ms_timeout_hander(void * p_context)
 {
     UNUSED_PARAMETER(p_context);
-    static uint8_t count=0;
-    
+        
     if(1 == ble_reset_flag)
     {
+        count=1;
+        ble_reset_flag = 2;
+        NRF_LOG_INFO("timer start.");
+    }
+    if(count>=1)
+    {
         count++;
-        if(count >1)
+        if(count>=15)
         {
+            NRF_LOG_INFO("timer timeout.");
+            count = 0;
             ble_reset_flag = 0;
             rcv_head_flag = DATA_INIT;
         }
@@ -1058,8 +1066,8 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
-        NRF_LOG_INFO("Received data from BLE NUS.");
-        NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+        //NRF_LOG_INFO("Received data from BLE NUS.");
+        //NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
         data_recived_len = p_evt->params.rx_data.length;
         memcpy(data_recived_buf,(uint8_t *)p_evt->params.rx_data.p_data,data_recived_len);
 
@@ -1085,7 +1093,6 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                         rcv_head_flag = DATA_HEAD;
                     }
                     ble_evt_flag = BLE_RCV_DATA;
-                    ble_reset_flag = 1;
                 }
             }
         }
