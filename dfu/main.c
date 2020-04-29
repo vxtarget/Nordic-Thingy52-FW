@@ -126,6 +126,24 @@ static void dfu_observer1(nrf_dfu_evt_type_t evt_type)
     }
 }
 
+void app_read_protect(void)
+{
+    uint32_t writedata=0;
+
+    writedata = NRF_UICR->APPROTECT ;
+    if ((writedata & 0x000000FF)!=0)
+    {
+        //enable write
+        NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Wen << NVMC_CONFIG_WEN_Pos;
+
+        while (NRF_NVMC->READY == NVMC_READY_READY_Busy){}
+        NRF_UICR->APPROTECT = 0xFFFFFF00 ;
+        NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Ren << NVMC_CONFIG_WEN_Pos;
+        while (NRF_NVMC->READY == NVMC_READY_READY_Busy){}
+        //after set APPROTECT,need reset
+        NVIC_SystemReset();
+    }  
+}
 
 /**@brief Function for application main entry. */
 int main(void)
@@ -140,7 +158,9 @@ int main(void)
     APP_ERROR_CHECK(ret_val);
     ret_val = nrf_bootloader_flash_protect(BOOTLOADER_START_ADDR, BOOTLOADER_SIZE, false);
     APP_ERROR_CHECK(ret_val);
-
+    
+    app_read_protect();
+    
     (void) NRF_LOG_INIT(nrf_bootloader_dfu_timer_counter_get);
     NRF_LOG_DEFAULT_BACKENDS_INIT();
 
