@@ -579,8 +579,8 @@ void m_100ms_timeout_hander(void * p_context)
     if(count>=1)
     {
         count++;
-        if(count>=15)
-        {
+        if(count>=6)
+        {    
             NRF_LOG_INFO("timer timeout.");
             count = 0;
             ble_reset_flag = 0;
