@@ -198,6 +198,7 @@
 #define UART_CMD_BAT_PERCENT           0x05
 #define UART_CMD_BLE_VERSION           0x06
 #define UART_CMD_CTL_BLE               0x07
+#define UART_CMD_RESET_BLE             0x08
 //VALUE
 #define VALUE_CONNECT                  0x01
 #define VALUE_DISCONNECT               0x02
@@ -1603,6 +1604,9 @@ void uart_event_handle(app_uart_evt_t * p_event)
                         {
                             ble_adv_switch_flag = BLE_OFF;
                         }
+                        break;
+                    case UART_CMD_RESET_BLE:
+                        NVIC_SystemReset();
                         break;
                     default:
                         break;
