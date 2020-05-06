@@ -566,24 +566,46 @@ static void rsp_status()
     send_stm_data(bak_buff,3);
 }
 #endif
-static volatile uint8_t count=0;
+static volatile uint8_t timeout_count=0;
+static volatile uint16_t timeout_longcnt=0;
+
 void m_100ms_timeout_hander(void * p_context)
 {
     UNUSED_PARAMETER(p_context);
         
     if(1 == ble_reset_flag)
     {
-        count=1;
-        ble_reset_flag = 2;
-        NRF_LOG_INFO("timer start.");
+        timeout_longcnt = 0; 
+        timeout_count=1;
+        ble_reset_flag = 0;
+        NRF_LOG_INFO("1-timer start.");
     }
-    if(count>=1)
+    else if(2 == ble_reset_flag)    
     {
-        count++;
-        if(count>=6)
+        timeout_count = 0;
+        timeout_longcnt=1;
+        ble_reset_flag = 0;
+        NRF_LOG_INFO("2-timer start.");
+    }
+    
+    if(timeout_count>=1)
+    {
+        timeout_count++;
+        if(timeout_count>=6)
         {    
-            NRF_LOG_INFO("timer timeout.");
-            count = 0;
+            NRF_LOG_INFO("1-timer timeout.");
+            timeout_count = 0;
+            ble_reset_flag = 0;
+            rcv_head_flag = DATA_INIT;
+        }
+    }
+    if(timeout_longcnt>=1)
+    {
+        timeout_longcnt++;
+        if(timeout_longcnt>=580)
+        {
+            NRF_LOG_INFO("2-timer timeout.");
+            timeout_longcnt=0;
             ble_reset_flag = 0;
             rcv_head_flag = DATA_INIT;
         }
@@ -1083,6 +1105,15 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 }
                 else
                 {
+                    //erase ST flash about 4 second
+                    if(data_recived_buf[3] == 0x00 && data_recived_buf[4] == 0x06)
+                    {
+                        ble_reset_flag = 2;
+                    }
+                    else
+                    {
+                        ble_reset_flag = 1;
+                    }
                     msg_len=(uint32_t)((data_recived_buf[5] << 24) +
                              (data_recived_buf[6] << 16) +
                              (data_recived_buf[7] << 8) +
