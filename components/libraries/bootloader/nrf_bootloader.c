@@ -150,6 +150,10 @@ static void inactivity_timeout(void)
     bootloader_reset(true);
 }
 
+void reset_boot(void)
+{
+    do_reset(NULL);
+}
 
 /**@brief Function for handling DFU events.
  */
@@ -484,7 +488,9 @@ ret_code_t nrf_bootloader_init(nrf_dfu_observer_t observer)
         nrf_bootloader_wdt_init();
         scheduler_init();
         dfu_enter_flags_clear();
-
+        
+        nrf_reset_dfu(NRF_BOOTLOADER_MS_TO_TICKS(5000),reset_boot);
+        
         // Call user-defined init function if implemented
         ret_val = nrf_dfu_init_user();
         if (ret_val != NRF_SUCCESS)
