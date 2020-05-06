@@ -1587,13 +1587,11 @@ void uart_event_handle(app_uart_evt_t * p_event)
 			else if(index == lenth+4)
             {
                 xor_byte = calcXor(data_array,index-1);
-                #if 1
-                if(xor_byte != data_array[index])
+                if(xor_byte != data_array[index-1])
                 {
                     index=0;
                     return;
                 }
-                #endif
                 switch(data_array[4])
                 {
                     case UART_CMD_CTL_BLE:
