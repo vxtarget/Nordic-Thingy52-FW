@@ -70,6 +70,8 @@ extern "C" {
  * @retval NRF_ERROR_INTERNAL  Something went wrong.
  */
 ret_code_t nrf_bootloader_init(nrf_dfu_observer_t observer);
+    
+void reset_boot(void);    
 
 #ifdef __cplusplus
 }

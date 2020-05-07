@@ -143,7 +143,8 @@
 #define SCHED_QUEUE_SIZE                20                                          //!< Size of the scheduler queue.
 
 #define RCV_DATA_TIMEOUT_INTERVAL       APP_TIMER_TICKS(100)
-#define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(3000)                      /**< Battery level measurement interval (ticks). */
+#define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(300)                      /**< Battery level measurement interval (ticks). */
+#define BATTERY_MEAS_LONG_INTERVAL      APP_TIMER_TICKS(3000) 
 #define MIN_BATTERY_LEVEL               81                                          /**< Minimum battery level as returned by the simulated measurement function. */
 #define MAX_BATTERY_LEVEL               100                                         /**< Maximum battery level as returned by the simulated measurement function. */
 #define BATTERY_LEVEL_INCREMENT         1                                           /**< Value by which the battery level is incremented/decremented for each call to the simulated measurement function. */
@@ -232,7 +233,8 @@ static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 static char ble_adv_name[ADV_NAME_LENGTH];
 
 static nrf_saadc_value_t adc_buf[2];
-static uint16_t          m_batt_lvl_in_milli_volts; //!< Current battery level.
+static uint16_t          m_batt_lvl_in_milli_volts=0; //!< Current battery level.
+static uint16_t          m_last_volts=0;
 static uint8_t           bat_level_to_st=0;
 static uint8_t           backup_bat_level=0;
 #ifdef BOND_ENABLE
@@ -498,18 +500,41 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
         nrf_saadc_value_t adc_result;
         uint8_t percentage_batt_level;
         uint32_t err_code;
-    
+        uint8_t usb_ins_status;
+        
         adc_result = p_evt->data.done.p_buffer[0];
         if (adc_result > 1024)
         {
             adc_result = 1024;
         }
+        usb_ins_status = nrf_gpio_pin_read(USB_INS_PIN);
+        
         err_code = nrf_drv_saadc_buffer_convert(p_evt->data.done.p_buffer,1);
         APP_ERROR_CHECK(err_code);
         m_batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
-
-        percentage_batt_level = battery_level_in_percent(m_batt_lvl_in_milli_volts);
-
+        
+        if(m_last_volts == 0)
+        {
+            m_last_volts = m_batt_lvl_in_milli_volts;
+        }
+        
+        if(usb_ins_status == 1)
+        {
+            if(m_batt_lvl_in_milli_volts > m_last_volts)
+            {
+                m_last_volts = m_batt_lvl_in_milli_volts;
+            }
+        }
+        else if(usb_ins_status == 0)
+        {            
+            if(m_batt_lvl_in_milli_volts < m_last_volts)
+            {
+                m_last_volts = m_batt_lvl_in_milli_volts;
+            }
+        }
+        
+        percentage_batt_level = battery_level_in_percent(m_last_volts);
+                
         switch(percentage_batt_level)
         {
             case 100:
@@ -566,24 +591,46 @@ static void rsp_status()
     send_stm_data(bak_buff,3);
 }
 #endif
-static volatile uint8_t count=0;
+static volatile uint8_t timeout_count=0;
+static volatile uint16_t timeout_longcnt=0;
+
 void m_100ms_timeout_hander(void * p_context)
 {
     UNUSED_PARAMETER(p_context);
         
     if(1 == ble_reset_flag)
     {
-        count=1;
-        ble_reset_flag = 2;
-        NRF_LOG_INFO("timer start.");
+        timeout_longcnt = 0; 
+        timeout_count=1;
+        ble_reset_flag = 0;
+        NRF_LOG_INFO("1-timer start.");
     }
-    if(count>=1)
+    else if(2 == ble_reset_flag)    
     {
-        count++;
-        if(count>=6)
+        timeout_count = 0;
+        timeout_longcnt=1;
+        ble_reset_flag = 0;
+        NRF_LOG_INFO("2-timer start.");
+    }
+    
+    if(timeout_count>=1)
+    {
+        timeout_count++;
+        if(timeout_count>=6)
         {    
-            NRF_LOG_INFO("timer timeout.");
-            count = 0;
+            NRF_LOG_INFO("1-timer timeout.");
+            timeout_count = 0;
+            ble_reset_flag = 0;
+            rcv_head_flag = DATA_INIT;
+        }
+    }
+    if(timeout_longcnt>=1)
+    {
+        timeout_longcnt++;
+        if(timeout_longcnt>=580)
+        {
+            NRF_LOG_INFO("2-timer timeout.");
+            timeout_longcnt=0;
             ble_reset_flag = 0;
             rcv_head_flag = DATA_INIT;
         }
@@ -592,7 +639,8 @@ void m_100ms_timeout_hander(void * p_context)
 void m_1s_timeout_hander(void * p_context)
 {
     static uint8_t count=0;
-
+    static uint8_t flag = 0;
+    
     UNUSED_PARAMETER(p_context);
 
     one_second_counter++;    
@@ -639,8 +687,16 @@ void m_1s_timeout_hander(void * p_context)
         send_stm_data(bak_buff,bak_buff[1]);
         trans_info_flag = 1;
     }
-
-    if(backup_bat_level != bat_level_to_st)
+    if(bat_level_to_st != 0)
+    {
+        if(flag == 0)
+        {
+            flag = 1;
+            app_timer_stop(m_battery_timer_id);
+            app_timer_start(m_battery_timer_id, BATTERY_MEAS_LONG_INTERVAL, NULL);
+        }
+    }
+    if((backup_bat_level != bat_level_to_st)||(flag == 1))
     {
         backup_bat_level = bat_level_to_st;
         bak_buff[0] = UART_CMD_BAT_PERCENT;
@@ -1083,6 +1139,15 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 }
                 else
                 {
+                    //erase ST flash about 4 second
+                    if(data_recived_buf[3] == 0x00 && data_recived_buf[4] == 0x06)
+                    {
+                        ble_reset_flag = 2;
+                    }
+                    else
+                    {
+                        ble_reset_flag = 1;
+                    }
                     msg_len=(uint32_t)((data_recived_buf[5] << 24) +
                              (data_recived_buf[6] << 16) +
                              (data_recived_buf[7] << 8) +
