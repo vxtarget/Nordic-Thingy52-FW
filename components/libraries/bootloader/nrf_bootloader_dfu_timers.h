@@ -102,8 +102,6 @@ void nrf_bootloader_wdt_feed_timer_start(uint32_t                              t
  */
 uint32_t nrf_bootloader_dfu_timer_counter_get(void);
 
-void nrf_reset_dfu(uint32_t timeout_ticks,
-                   nrf_bootloader_dfu_timeout_callback_t callback);
 #ifdef __cplusplus
 }
 #endif

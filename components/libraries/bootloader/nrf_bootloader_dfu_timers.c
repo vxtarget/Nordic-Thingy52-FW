@@ -254,15 +254,6 @@ void nrf_bootloader_dfu_inactivity_timer_restart(uint32_t                       
     }
 }
 
-void nrf_reset_dfu(uint32_t timeout_ticks,
-                   nrf_bootloader_dfu_timeout_callback_t callback)
-{
-    if(timeout_ticks != 0)
-    {
-       timer_start(mp_reset_dfu,timeout_ticks,callback);
-    }
-}
-
 void nrf_bootloader_wdt_feed_timer_start(uint32_t                              timeout_ticks,
                                          nrf_bootloader_dfu_timeout_callback_t callback)
 {
