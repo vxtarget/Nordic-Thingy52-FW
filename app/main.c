@@ -175,7 +175,7 @@
 
 #define PASSKEY_LENGTH                  6                                           /**< Length of pass-key received by the stack for display. */
 #define HEAD_NAME_LENGTH                8
-#define ADV_NAME_LENGTH                 20
+#define ADV_NAME_LENGTH                 18
 
 #define DEAD_BEEF                       0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
@@ -228,7 +228,7 @@ static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
 static volatile uint8_t ble_adv_switch_flag = BLE_DEF;
 static volatile uint8_t trans_info_flag = 0;
 static volatile uint8_t ble_reset_flag=0;
-static uint8_t mac_ascii[24];
+static uint8_t mac_ascii[12];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 static char ble_adv_name[ADV_NAME_LENGTH];
 
