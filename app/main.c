@@ -125,8 +125,8 @@
 #define BLE_READ_I2C_DATA               11
 
 #define BLE_DEF                         0
-#define BLE_OFF                         1
-#define BLE_ON                          2
+#define BLE_ON                          1
+#define BLE_OFF                         2
 #define BLE_DISCON                      3
 
 #define INIT_VALUE                      0
@@ -210,6 +210,10 @@
 #define DATA_INIT                       0x00
 #define DATA_HEAD                       0x01
 
+//BLE RSP STATUS
+#define CTL_SUCCESSS                    0x01
+#define CTL_FAILED                      0x02
+
 #endif
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
@@ -277,6 +281,7 @@ static uint32_t m_data2         = 0xABABABAB;
 static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt);
 static uint8_t bond_check_key_flag = INIT_VALUE;
 static uint8_t rcv_head_flag = 0;
+static uint8_t ble_status_flag = 0;
 
 #ifdef SCHED_ENABLE
 static ringbuffer_t m_ble_fifo;
@@ -319,7 +324,9 @@ void wait_for_flash_ready(nrf_fstorage_t const * p_fstorage)
 static void flash_data_write(uint32_t data)
 {
     ret_code_t rc;
-
+    
+    nrf_fstorage_erase(&fstorage,0x6f000, 1, NULL);
+    
     rc = nrf_fstorage_write(&fstorage, 0x6f000, &data, sizeof(m_data), NULL);
     APP_ERROR_CHECK(rc);
 
@@ -583,12 +590,12 @@ void battery_level_meas_timeout_handler(void *p_context)
 }
 
 #ifdef UART_TRANS
-static void rsp_status()
+static void rsp_status(uint8_t rsp)
 {
     bak_buff[0]=0xA5;
     bak_buff[1]=0x5A;
-    bak_buff[2]=0x01;
-    send_stm_data(bak_buff,3);
+    bak_buff[2]=rsp;
+    uart_put_data(bak_buff,3);
 }
 #endif
 static volatile uint8_t timeout_count=0;
@@ -638,42 +645,16 @@ void m_100ms_timeout_hander(void * p_context)
 }
 void m_1s_timeout_hander(void * p_context)
 {
-    static uint8_t count=0;
     static uint8_t flag = 0;
     
     UNUSED_PARAMETER(p_context);
 
-    one_second_counter++;    
+    one_second_counter++;
     
     //feed wdt
     nrf_drv_wdt_channel_feed(m_channel_id);
 
 #ifdef UART_TRANS
-    if(BLE_OFF == ble_adv_switch_flag)
-    {
-        ble_adv_switch_flag = BLE_DISCON;
-        sd_ble_gap_disconnect(m_conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
-    }
-    else if(BLE_DISCON == ble_adv_switch_flag)
-    {
-        count++;
-        if(count>=4)
-        {
-            ble_adv_switch_flag = BLE_DEF;
-            count = 0;
-            advertising_stop();
-            rsp_status();
-            flash_data_write(m_data);
-        }
-    }
-    else if(BLE_ON == ble_adv_switch_flag)
-    {
-        ble_adv_switch_flag = BLE_DEF;
-        advertising_start();
-        rsp_status();
-        flash_data_write(m_data2);
-    }
-
     if(0 == trans_info_flag)
     {
         bak_buff[0] = UART_CMD_ADV_NAME;
@@ -698,6 +679,7 @@ void m_1s_timeout_hander(void * p_context)
     }
     if((backup_bat_level != bat_level_to_st)||(flag == 1))
     {
+        flag = 0;
         backup_bat_level = bat_level_to_st;
         bak_buff[0] = UART_CMD_BAT_PERCENT;
         bak_buff[1] = 0x01;
@@ -973,16 +955,6 @@ static void nrf_qwr_error_handler(uint32_t nrf_error)
 {
     APP_ERROR_HANDLER(nrf_error);
 }
-#ifdef BUTTONLESS_ENABLED
-static void advertising_config_get(ble_adv_modes_config_t * p_config)
-{
-    memset(p_config, 0, sizeof(ble_adv_modes_config_t));
-
-    p_config->ble_adv_fast_enabled  = true;
-    p_config->ble_adv_fast_interval = APP_ADV_INTERVAL;
-    p_config->ble_adv_fast_timeout  = APP_ADV_DURATION;
-}
-
 
 static void disconnect(uint16_t conn_handle, void * p_context)
 {
@@ -999,6 +971,15 @@ static void disconnect(uint16_t conn_handle, void * p_context)
     }
 }
 
+#ifdef BUTTONLESS_ENABLED
+static void advertising_config_get(ble_adv_modes_config_t * p_config)
+{
+    memset(p_config, 0, sizeof(ble_adv_modes_config_t));
+
+    p_config->ble_adv_fast_enabled  = true;
+    p_config->ble_adv_fast_interval = APP_ADV_INTERVAL;
+    p_config->ble_adv_fast_timeout  = APP_ADV_DURATION;
+}
 
 // YOUR_JOB: Update this code if you want to do anything given a DFU event (optional).
 /**@brief Function for handling dfu events from the Buttonless Secure DFU service
@@ -1393,6 +1374,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_DISCONNECTED:
         {
             NRF_LOG_INFO("Disconnected");
+            ble_evt_flag = BLE_DISCONNECT;
             bond_check_key_flag = INIT_VALUE;
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
 #ifdef UART_TRANS
@@ -1652,22 +1634,22 @@ void uart_event_handle(app_uart_evt_t * p_event)
 			else if(index == lenth+4)
             {
                 xor_byte = calcXor(data_array,index-1);
-                #if 1
                 if(xor_byte != data_array[index])
                 {
                     index=0;
                     return;
                 }
-                #endif
                 switch(data_array[4])
                 {
                     case UART_CMD_CTL_BLE:
                         if(BLE_ON == data_array[6])
                         {
                             ble_adv_switch_flag = BLE_ON;
+                            NRF_LOG_INFO("RCV ble flag ON.\n");
                         }else if(BLE_OFF == data_array[6])
                         {
                             ble_adv_switch_flag = BLE_OFF;
+                            NRF_LOG_INFO("RCV ble flag OFF.\n");
                         }
                         break;
                     case UART_CMD_RESET_BLE:
@@ -2060,11 +2042,19 @@ static void ctl_advertising(void)
     if(((0xFF == data[0])&&(0xFF == data[1])&&(0xFF == data[2])&&(0xFF == data[3]))||
         ((0xFE == data[0])&&(0x0F == data[1])&&(0xDC == data[2])&&(0xBA == data[3])))
     {
-        advertising_start();
+        ble_status_flag = BLE_OFF;
+        NRF_LOG_INFO("1-No Adv.\n");
     }
     else if((0xAB == data[0])&&(0xAB == data[1])&&(0xAB == data[2])&&(0xAB == data[3]))
     {
+        ble_status_flag = BLE_ON;
         advertising_start();
+        NRF_LOG_INFO("2-Start adv.\n");
+    }
+    else
+    {
+        ble_status_flag = BLE_OFF;
+        NRF_LOG_INFO("3-No Adv.\n");
     }
 }
 /**@brief Application main function.
@@ -2080,16 +2070,61 @@ static void wdt_init(void)
     APP_ERROR_CHECK(err_code);
     nrf_drv_wdt_enable();
 }
-#ifdef SCHED_ENABLE
+
+static void ble_ctl_process(void *p_event_data,uint16_t event_size)
+{
+    if(BLE_OFF == ble_adv_switch_flag)
+    {
+        ble_adv_switch_flag = BLE_DEF;
+        if(BLE_ON == ble_status_flag)
+        {
+            rsp_status(CTL_SUCCESSS);
+            flash_data_write(m_data);
+            ble_status_flag = BLE_OFF;
+            NRF_LOG_INFO("1-Ble disconnect.\n");
+            
+            if(BLE_CONNECT == ble_evt_flag)
+            {
+                sd_ble_gap_disconnect(m_conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+                m_conn_handle = BLE_CONN_HANDLE_INVALID;
+                ble_evt_flag = BLE_DISCONNECT;
+                NRF_LOG_INFO("Ctl connect.");
+            }
+            nrf_delay_ms(500);
+            advertising_stop();
+
+        }
+        else 
+        {
+            rsp_status(CTL_FAILED);
+        }
+    }
+    else if(BLE_ON == ble_adv_switch_flag)
+    {
+        ble_adv_switch_flag = BLE_DEF;
+        if(BLE_OFF == ble_status_flag)
+        {
+            advertising_start();
+            rsp_status(CTL_SUCCESSS);
+            flash_data_write(m_data2);
+            ble_status_flag = BLE_ON;
+            NRF_LOG_INFO("2-Start advertisement.\n");
+        }
+        else
+        {
+            rsp_status(CTL_FAILED);
+        }
+    }   
+}
 static void scheduler_init(void)
 {
     APP_SCHED_INIT(SCHED_MAX_EVENT_DATA_SIZE, SCHED_QUEUE_SIZE);
 }
 static void main_loop(void)
 {   
-    app_sched_event_put(NULL,NULL,twi_write_data);
+    app_sched_event_put(NULL,NULL,ble_ctl_process);
 }
-#endif
+
 int main(void)
 {    
 #ifdef BUTTONLESS_ENABLED
@@ -2099,9 +2134,7 @@ int main(void)
 #endif
     // Initialize.
     system_init();
-#ifdef SCHED_ENABLE
     scheduler_init();
-#endif
     log_init();
 
     timers_init();
@@ -2134,10 +2167,8 @@ int main(void)
     // Enter main loop.
     for (;;)
     {
-#ifdef SCHED_ENABLE
         main_loop();
 		app_sched_execute();
-#endif
         idle_state_handle();
     }
 }
