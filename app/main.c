@@ -677,7 +677,7 @@ void m_1s_timeout_hander(void * p_context)
             app_timer_start(m_battery_timer_id, BATTERY_MEAS_LONG_INTERVAL, NULL);
         }
     }
-    if((backup_bat_level != bat_level_to_st)||(flag == 1))
+    if((backup_bat_level != bat_level_to_st))
     {
         flag = 0;
         backup_bat_level = bat_level_to_st;
