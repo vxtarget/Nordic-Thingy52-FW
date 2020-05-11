@@ -107,7 +107,7 @@
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
 #define FW_REVISION                     "s132_nrf52_7.0.1"
-#define SW_REVISION                     "1.0.0"
+#define SW_REVISION                     "1.0.2"
 
 #define APDU_TAG_BLE                    0x44
 
@@ -1634,11 +1634,7 @@ void uart_event_handle(app_uart_evt_t * p_event)
 			else if(index == lenth+4)
             {
                 xor_byte = calcXor(data_array,index-1);
-<<<<<<< HEAD
                 if(xor_byte != data_array[index-1])
-=======
-                if(xor_byte != data_array[index])
->>>>>>> modify_dfu
                 {
                     index=0;
                     return;
