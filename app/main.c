@@ -129,6 +129,9 @@
 #define BLE_OFF                         2
 #define BLE_DISCON                      3
 
+#define NO_CHARGE                       0
+#define USB_CHARGE                      1
+
 #define INIT_VALUE                      0
 #define AUTH_VALUE                      1
 
@@ -525,14 +528,15 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
             m_last_volts = m_batt_lvl_in_milli_volts;
         }
         
-        if(usb_ins_status == 1)
+        if(usb_ins_status == USB_CHARGE)
         {
+            m_batt_lvl_in_milli_volts -= 150;
             if(m_batt_lvl_in_milli_volts > m_last_volts)
             {
                 m_last_volts = m_batt_lvl_in_milli_volts;
             }
         }
-        else if(usb_ins_status == 0)
+        else if(usb_ins_status == NO_CHARGE)
         {            
             if(m_batt_lvl_in_milli_volts < m_last_volts)
             {
