@@ -61,9 +61,10 @@ typedef struct
 } dfu_timer_t;
 
 
-dfu_timer_t   m_timers[2] = {{.cc_channel = 0}, {.cc_channel = 1}}; //!< The timers used by this module.
+dfu_timer_t   m_timers[3] = {{.cc_channel = 0}, {.cc_channel = 1}, {.cc_channel = 2}}; //!< The timers used by this module.
 dfu_timer_t * mp_inactivity = &m_timers[0];                         //!< Direct pointer to the inactivity timer, for convenience and readability.
 dfu_timer_t * mp_wdt_feed   = &m_timers[1];                         //!< Direct pointer to the wdt feed timer, for convenience and readability.
+dfu_timer_t * mp_reset_dfu   = &m_timers[2];
 uint32_t      m_counter_loops = 0;                                  //!< The number of times the RTC counter register has overflowed (wrapped around) since the RTC was started.
 
 #if RTC_COUNT > 2
@@ -252,7 +253,6 @@ void nrf_bootloader_dfu_inactivity_timer_restart(uint32_t                       
         timer_start(mp_inactivity, timeout_ticks, callback);
     }
 }
-
 
 void nrf_bootloader_wdt_feed_timer_start(uint32_t                              timeout_ticks,
                                          nrf_bootloader_dfu_timeout_callback_t callback)
