@@ -107,7 +107,7 @@
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
 #define FW_REVISION                     "s132_nrf52_7.0.1"
-#define SW_REVISION                     "1.0.2"
+#define SW_REVISION                     "1.0.3"
 
 #define APDU_TAG_BLE                    0x44
 
@@ -129,6 +129,9 @@
 #define BLE_OFF                         2
 #define BLE_DISCON                      3
 
+#define NO_CHARGE                       0
+#define USB_CHARGE                      1
+
 #define INIT_VALUE                      0
 #define AUTH_VALUE                      1
 
@@ -144,7 +147,7 @@
 
 #define RCV_DATA_TIMEOUT_INTERVAL       APP_TIMER_TICKS(100)
 #define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(300)                      /**< Battery level measurement interval (ticks). */
-#define BATTERY_MEAS_LONG_INTERVAL      APP_TIMER_TICKS(3000) 
+#define BATTERY_MEAS_LONG_INTERVAL      APP_TIMER_TICKS(8000) 
 #define MIN_BATTERY_LEVEL               81                                          /**< Minimum battery level as returned by the simulated measurement function. */
 #define MAX_BATTERY_LEVEL               100                                         /**< Maximum battery level as returned by the simulated measurement function. */
 #define BATTERY_LEVEL_INCREMENT         1                                           /**< Value by which the battery level is incremented/decremented for each call to the simulated measurement function. */
@@ -525,14 +528,15 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
             m_last_volts = m_batt_lvl_in_milli_volts;
         }
         
-        if(usb_ins_status == 1)
+        if(usb_ins_status == USB_CHARGE)
         {
+            m_batt_lvl_in_milli_volts -= 150;
             if(m_batt_lvl_in_milli_volts > m_last_volts)
             {
                 m_last_volts = m_batt_lvl_in_milli_volts;
             }
         }
-        else if(usb_ins_status == 0)
+        else if(usb_ins_status == NO_CHARGE)
         {            
             if(m_batt_lvl_in_milli_volts < m_last_volts)
             {
@@ -623,7 +627,7 @@ void m_100ms_timeout_hander(void * p_context)
     if(timeout_count>=1)
     {
         timeout_count++;
-        if(timeout_count>=6)
+        if(timeout_count>=20)
         {    
             NRF_LOG_INFO("1-timer timeout.");
             timeout_count = 0;
@@ -1796,9 +1800,56 @@ static void twi_write_data(void)
     }
 }
 #endif
-static void twi_read_data(void)
+static void ble_resp_data(void)
 {
     ret_code_t err_code;
+    uint16_t length = 0;
+    uint16_t offset = 0;
+    
+    while(data_recived_len>BLE_NUS_MAX_DATA_LEN)
+    {
+        length = BLE_NUS_MAX_DATA_LEN;
+        NRF_LOG_INFO("1----data lenth %d \n",data_recived_len);
+        NRF_LOG_HEXDUMP_DEBUG(data_recived_buf,64);
+        do
+        {
+            err_code = ble_nus_data_send(&m_nus, data_recived_buf+offset, &length, m_conn_handle);
+            if ((err_code != NRF_ERROR_INVALID_STATE) &&
+              (err_code != NRF_ERROR_RESOURCES) &&
+              (err_code != NRF_ERROR_NOT_FOUND))
+            {
+                APP_ERROR_CHECK(err_code);
+            }
+            if (err_code == NRF_SUCCESS)
+            {
+                data_recived_len -=BLE_NUS_MAX_DATA_LEN;
+                offset +=BLE_NUS_MAX_DATA_LEN;
+            }
+        } while (err_code == NRF_ERROR_RESOURCES);                
+    }
+     NRF_LOG_INFO("2----data lenth %d\n",data_recived_len);
+     NRF_LOG_HEXDUMP_DEBUG(data_recived_buf+offset,data_recived_len); 
+    
+    if(data_recived_len)
+    {
+        length = data_recived_len;
+        do
+        {
+          err_code = ble_nus_data_send(&m_nus, data_recived_buf+offset, &length, m_conn_handle);
+          if ((err_code != NRF_ERROR_INVALID_STATE) &&
+              (err_code != NRF_ERROR_RESOURCES) &&
+              (err_code != NRF_ERROR_NOT_FOUND))
+          {
+              APP_ERROR_CHECK(err_code);
+          }
+        } while (err_code == NRF_ERROR_RESOURCES);
+        data_recived_len = 0;
+        length = 0;
+       
+    }
+}
+static void twi_read_data(void)
+{
     uint32_t counter = 0;
     
     if(BLE_SEND_I2C_DATA == ble_evt_flag)
@@ -1813,18 +1864,8 @@ static void twi_read_data(void)
         }
         data_recived_flag=false;
         ble_evt_flag = BLE_READ_I2C_DATA;
-        //Send data
-        do
-        {
-          uint16_t length = (uint16_t)data_recived_len;
-          err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
-          if ((err_code != NRF_ERROR_INVALID_STATE) &&
-              (err_code != NRF_ERROR_RESOURCES) &&
-              (err_code != NRF_ERROR_NOT_FOUND))
-          {
-              APP_ERROR_CHECK(err_code);
-          }
-        } while (err_code == NRF_ERROR_RESOURCES);
+        //response data        
+        ble_resp_data();        
         ble_evt_flag = BLE_DEFAULT;
         RST_ONE_SECNOD_COUNTER();
     }

@@ -76,7 +76,7 @@ uint32_t nfc_data_out_len=0;
 
 bool data_recived_flag=false;
 uint8_t data_recived_buf[APDU_BUFF_SIZE];
-uint32_t data_recived_len=0;
+uint16_t data_recived_len=0;
 
 void apdu_command(const uint8_t *p_buf,uint32_t data_len);
 bool apdu_cmd =false;
@@ -97,6 +97,8 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
 {
     static uint8_t read_state = READSTATE_IDLE;
     static uint32_t data_len =0;
+    uint32_t len;
+    
     switch (p_event->type)
     {
         case NRF_DRV_TWI_EVT_DONE:
@@ -106,32 +108,44 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
                 if(read_state == READSTATE_IDLE)
                 {
                     if(data_recived_buf[0] == '?' && data_recived_buf[1] == '#' && data_recived_buf[2] == '#')
-                        {
-                            read_state = READSTATE_READ_INFO;
-                            data_recived_len= 3;
-                            nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,6);//read id+len bytes len
-                        }
+                    {
+                        read_state = READSTATE_READ_INFO;
+                        data_recived_len= 3;
+                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,6);//read id+len bytes len
+                    }
                 }
                 else if(read_state == READSTATE_READ_INFO)
                 {
                     data_recived_len += 6;
                     data_len = ((uint32_t)data_recived_buf[5] << 24) + (data_recived_buf[6] << 16) + (data_recived_buf[7] << 8) + data_recived_buf[8];
-                    if(data_len > 0)
+                    len=data_len>255?255:data_len;
+                    if(len > 0)
                     {
                         read_state = READSTATE_READ_DATA;
-                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,data_len);//read id+len bytes len
-                    }                            
+                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,len);//read id+len bytes len
+                        data_len-=len;
+                        data_recived_len+=len;
+                    }
                     else
-                    {                        
+                    {
                         data_recived_flag = true;
                         read_state = READSTATE_IDLE;
                     }
                 }
                 else if(read_state == READSTATE_READ_DATA)
                 {
-                    data_recived_len += data_len;
-                    data_recived_flag = true;
-                    read_state = READSTATE_IDLE;
+                    len=data_len>255?255:data_len;
+                    if(len>0)
+                    {
+                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,len);//read id+len bytes len
+                        data_len-=len;
+                        data_recived_len+=len;
+                    }
+                    else
+                    {
+                        data_recived_flag = true;
+                        read_state = READSTATE_IDLE; 
+                    }
                 }
             }
             else
