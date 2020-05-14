@@ -107,7 +107,7 @@
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
 #define FW_REVISION                     "s132_nrf52_7.0.1"
-#define SW_REVISION                     "1.0.2"
+#define SW_REVISION                     "1.0.3"
 
 #define APDU_TAG_BLE                    0x44
 
@@ -147,7 +147,7 @@
 
 #define RCV_DATA_TIMEOUT_INTERVAL       APP_TIMER_TICKS(100)
 #define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(300)                      /**< Battery level measurement interval (ticks). */
-#define BATTERY_MEAS_LONG_INTERVAL      APP_TIMER_TICKS(3000) 
+#define BATTERY_MEAS_LONG_INTERVAL      APP_TIMER_TICKS(8000) 
 #define MIN_BATTERY_LEVEL               81                                          /**< Minimum battery level as returned by the simulated measurement function. */
 #define MAX_BATTERY_LEVEL               100                                         /**< Maximum battery level as returned by the simulated measurement function. */
 #define BATTERY_LEVEL_INCREMENT         1                                           /**< Value by which the battery level is incremented/decremented for each call to the simulated measurement function. */
@@ -2084,7 +2084,6 @@ static void ctl_advertising(void)
         ((0xFE == data[0])&&(0x0F == data[1])&&(0xDC == data[2])&&(0xBA == data[3])))
     {
         ble_status_flag = BLE_OFF;
-        advertising_start();
         NRF_LOG_INFO("1-No Adv.\n");
     }
     else if((0xAB == data[0])&&(0xAB == data[1])&&(0xAB == data[2])&&(0xAB == data[3]))
