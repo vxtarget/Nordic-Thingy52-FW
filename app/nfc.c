@@ -84,6 +84,8 @@ bool apdu_cmd =false;
 //TWI driver
 static volatile bool twi_xfer_done = false ;
 static uint8_t twi_xfer_dir = 0; //0-write 1-read
+extern uint8_t ble_adv_switch_flag;
+extern uint8_t ctl_channel_flag;
 
 /**
  * @brief TWI master instance.
@@ -394,8 +396,25 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
         }
         else
         {
-            nfc_data_out_len = 2;
-            memcpy(nfc_data_out_buf,"\x6D\x00",nfc_data_out_len); 
+            if(p_buf[0] == 0x5A && p_buf[1] == 0xA5 
+              && p_buf[2] == 0x07 && p_buf[3] == 0x1)
+            {
+                if(p_buf[4] == 0x03)
+                {
+                    ble_adv_switch_flag = 3;
+                }else if(p_buf[4] == 0x02)
+                {
+                    ble_adv_switch_flag = 2;
+                }
+                ctl_channel_flag = 2;
+                nfc_data_out_len = 3;
+                memcpy(nfc_data_out_buf,"\xA5\x5\01",nfc_data_out_len); 
+            }
+            else
+            {
+                nfc_data_out_len = 2;
+                memcpy(nfc_data_out_buf,"\x6D\x00",nfc_data_out_len); 
+            }
         }
     }
 }
