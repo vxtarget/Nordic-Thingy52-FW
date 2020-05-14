@@ -627,7 +627,7 @@ void m_100ms_timeout_hander(void * p_context)
     if(timeout_count>=1)
     {
         timeout_count++;
-        if(timeout_count>=6)
+        if(timeout_count>=20)
         {    
             NRF_LOG_INFO("1-timer timeout.");
             timeout_count = 0;
@@ -1800,9 +1800,56 @@ static void twi_write_data(void)
     }
 }
 #endif
-static void twi_read_data(void)
+static void ble_resp_data(void)
 {
     ret_code_t err_code;
+    uint16_t length = 0;
+    uint16_t offset = 0;
+    
+    while(data_recived_len>BLE_NUS_MAX_DATA_LEN)
+    {
+        length = BLE_NUS_MAX_DATA_LEN;
+        NRF_LOG_INFO("1----data lenth %d \n",data_recived_len);
+        NRF_LOG_HEXDUMP_DEBUG(data_recived_buf,64);
+        do
+        {
+            err_code = ble_nus_data_send(&m_nus, data_recived_buf+offset, &length, m_conn_handle);
+            if ((err_code != NRF_ERROR_INVALID_STATE) &&
+              (err_code != NRF_ERROR_RESOURCES) &&
+              (err_code != NRF_ERROR_NOT_FOUND))
+            {
+                APP_ERROR_CHECK(err_code);
+            }
+            if (err_code == NRF_SUCCESS)
+            {
+                data_recived_len -=BLE_NUS_MAX_DATA_LEN;
+                offset +=BLE_NUS_MAX_DATA_LEN;
+            }
+        } while (err_code == NRF_ERROR_RESOURCES);                
+    }
+     NRF_LOG_INFO("2----data lenth %d\n",data_recived_len);
+     NRF_LOG_HEXDUMP_DEBUG(data_recived_buf+offset,data_recived_len); 
+    
+    if(data_recived_len)
+    {
+        length = data_recived_len;
+        do
+        {
+          err_code = ble_nus_data_send(&m_nus, data_recived_buf+offset, &length, m_conn_handle);
+          if ((err_code != NRF_ERROR_INVALID_STATE) &&
+              (err_code != NRF_ERROR_RESOURCES) &&
+              (err_code != NRF_ERROR_NOT_FOUND))
+          {
+              APP_ERROR_CHECK(err_code);
+          }
+        } while (err_code == NRF_ERROR_RESOURCES);
+        data_recived_len = 0;
+        length = 0;
+       
+    }
+}
+static void twi_read_data(void)
+{
     uint32_t counter = 0;
     
     if(BLE_SEND_I2C_DATA == ble_evt_flag)
@@ -1817,18 +1864,8 @@ static void twi_read_data(void)
         }
         data_recived_flag=false;
         ble_evt_flag = BLE_READ_I2C_DATA;
-        //Send data
-        do
-        {
-          uint16_t length = (uint16_t)data_recived_len;
-          err_code = ble_nus_data_send(&m_nus, data_recived_buf, &length, m_conn_handle);
-          if ((err_code != NRF_ERROR_INVALID_STATE) &&
-              (err_code != NRF_ERROR_RESOURCES) &&
-              (err_code != NRF_ERROR_NOT_FOUND))
-          {
-              APP_ERROR_CHECK(err_code);
-          }
-        } while (err_code == NRF_ERROR_RESOURCES);
+        //response data        
+        ble_resp_data();        
         ble_evt_flag = BLE_DEFAULT;
         RST_ONE_SECNOD_COUNTER();
     }
@@ -2047,6 +2084,7 @@ static void ctl_advertising(void)
         ((0xFE == data[0])&&(0x0F == data[1])&&(0xDC == data[2])&&(0xBA == data[3])))
     {
         ble_status_flag = BLE_OFF;
+        advertising_start();
         NRF_LOG_INFO("1-No Adv.\n");
     }
     else if((0xAB == data[0])&&(0xAB == data[1])&&(0xAB == data[2])&&(0xAB == data[3]))

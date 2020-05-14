@@ -23,7 +23,7 @@ typedef struct {
 
 extern bool data_recived_flag;
 extern uint8_t data_recived_buf[APDU_BUFF_SIZE];
-extern uint32_t data_recived_len;
+extern uint16_t data_recived_len;
 
 bool i2c_master_write(uint8_t *buf,uint32_t len);
 bool i2c_master_read(void);

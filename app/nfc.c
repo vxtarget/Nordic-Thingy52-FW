@@ -76,7 +76,7 @@ uint32_t nfc_data_out_len=0;
 
 bool data_recived_flag=false;
 uint8_t data_recived_buf[APDU_BUFF_SIZE];
-uint32_t data_recived_len=0;
+uint16_t data_recived_len=0;
 
 void apdu_command(const uint8_t *p_buf,uint32_t data_len);
 bool apdu_cmd =false;
@@ -97,6 +97,9 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
 {
     static uint8_t read_state = READSTATE_IDLE;
     static uint32_t data_len =0;
+    static uint32_t i2c_offset=0;
+    static uint8_t long_data_flag = 0;
+    
     switch (p_event->type)
     {
         case NRF_DRV_TWI_EVT_DONE:
@@ -106,11 +109,11 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
                 if(read_state == READSTATE_IDLE)
                 {
                     if(data_recived_buf[0] == '?' && data_recived_buf[1] == '#' && data_recived_buf[2] == '#')
-                        {
-                            read_state = READSTATE_READ_INFO;
-                            data_recived_len= 3;
-                            nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,6);//read id+len bytes len
-                        }
+                    {
+                        read_state = READSTATE_READ_INFO;
+                        data_recived_len= 3;
+                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,6);//read id+len bytes len
+                    }
                 }
                 else if(read_state == READSTATE_READ_INFO)
                 {
@@ -119,8 +122,33 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
                     if(data_len > 0)
                     {
                         read_state = READSTATE_READ_DATA;
-                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,data_len);//read id+len bytes len
-                    }                            
+                        #if 1
+                        i2c_offset = data_recived_len;
+                        while(data_len>255)
+                        {                            
+                            nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+i2c_offset,255);//read id+len bytes len
+                            data_len -=255;
+                            i2c_offset +=255;
+                            data_recived_len +=255;
+                        }
+                        if(data_len)
+                        {
+                            nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+i2c_offset,data_len);
+                        }
+                        #else
+                        if(data_len<=255)
+                        {
+                            nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,data_len);//read id+len bytes len
+                        }else if(data_len > 255)
+                        {
+                            long_data_flag = 1;                            
+                            nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,255);
+                            data_len -= 255;
+                            i2c_offset =255+data_recived_len;
+                            data_recived_len =i2c_offset;
+                        }
+                        #endif
+                    }                           
                     else
                     {                        
                         data_recived_flag = true;
@@ -129,9 +157,37 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
                 }
                 else if(read_state == READSTATE_READ_DATA)
                 {
+                    #if 1
                     data_recived_len += data_len;
                     data_recived_flag = true;
                     read_state = READSTATE_IDLE;
+                    #else
+                    if(long_data_flag == 0)
+                    {
+                        data_recived_len += data_len;
+                        data_recived_flag = true;
+                        read_state = READSTATE_IDLE;
+                    }else if(long_data_flag == 1)
+                    {
+                        if(data_len>255)
+                        {                            
+                            nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+i2c_offset,255);
+                            data_len -= 255;
+                            i2c_offset+=255;
+                            data_recived_len = i2c_offset;
+                        }else if(data_len)
+                        {
+                            nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+i2c_offset,data_len);
+                            data_recived_len += data_len;
+                            NRF_LOG_INFO("I2C receive lenth is %d \n",data_recived_len);
+                            i2c_offset = 0;
+                            long_data_flag = 0;
+                            data_recived_flag = true;
+                            read_state = READSTATE_IDLE;
+                        }
+                    }
+                    #endif
+
                 }
             }
             else
