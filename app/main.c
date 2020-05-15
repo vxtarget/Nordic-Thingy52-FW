@@ -239,6 +239,7 @@ nrf_drv_wdt_channel_id m_channel_id;
 static volatile uint8_t one_second_counter=0;
 static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
 volatile uint8_t ble_adv_switch_flag = BLE_DEF;
+static volatile uint8_t ble_conn_flag = BLE_DEF;
 static volatile uint8_t trans_info_flag = 0;
 static volatile uint8_t ble_reset_flag=0;
 static uint8_t mac_ascii[12];
@@ -1689,7 +1690,8 @@ void uart_event_handle(app_uart_evt_t * p_event)
                             NRF_LOG_INFO("RCV ble flag OFF.\n");
                         }else if(BLE_DISCON == data_array[6])
                         {
-                            ble_adv_switch_flag = BLE_DISCON;
+                            ble_conn_flag = BLE_DISCON;
+							 NRF_LOG_INFO("RCV ble flag DIS.\n");
                         }
                         ctl_channel_flag = UART_CHANNEL;
                         break;
@@ -2246,13 +2248,14 @@ static void ble_ctl_process(void *p_event_data,uint16_t event_size)
                     break;
             }              
         }
-    }else if(BLE_DISCON == ble_adv_switch_flag)
+    }
+	if(BLE_DISCON == ble_conn_flag)
     {
         if(BLE_CONNECT == ble_evt_flag)
         {
             sd_ble_gap_disconnect(m_conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
-            m_conn_handle = BLE_CONN_HANDLE_INVALID;
             ble_evt_flag = BLE_DISCONNECT;
+			ble_conn_flag = BLE_DEF;
             NRF_LOG_INFO("Ctl disconnect.");
         }
     }
