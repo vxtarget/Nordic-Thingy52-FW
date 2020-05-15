@@ -107,7 +107,7 @@
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
 #define FW_REVISION                     "s132_nrf52_7.0.1"
-#define SW_REVISION                     "1.0.4"
+#define SW_REVISION                     "1.0.5"
 
 #define APDU_TAG_BLE                    0x44
 
@@ -249,8 +249,8 @@ static char ble_adv_name[ADV_NAME_LENGTH];
 static nrf_saadc_value_t adc_buf[2];
 static uint16_t          m_batt_lvl_in_milli_volts=0; //!< Current battery level.
 static uint16_t          m_last_volts=0;
-static uint8_t           bat_level_to_st=0;
-static uint8_t           backup_bat_level=0;
+static uint8_t           bat_level_to_st=0xff;
+static uint8_t           backup_bat_level=0xff;
 #ifdef BOND_ENABLE
 static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #endif
@@ -699,13 +699,14 @@ void m_1s_timeout_hander(void * p_context)
         send_stm_data(bak_buff,bak_buff[1]);
         trans_info_flag = 1;
     }
-    if(bat_level_to_st != 0)
+    if(bat_level_to_st != 0xff)
     {
         if(flag == 0)
         {
             flag = 1;
             app_timer_stop(m_battery_timer_id);
             app_timer_start(m_battery_timer_id, BATTERY_MEAS_LONG_INTERVAL, NULL);
+            NRF_LOG_INFO("Start long term time");
         }
     }
     if((backup_bat_level != bat_level_to_st))
