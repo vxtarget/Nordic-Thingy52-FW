@@ -2258,7 +2258,10 @@ static void ble_ctl_process(void *p_event_data,uint16_t event_size)
             ble_evt_flag = BLE_DISCONNECT;
 			ble_conn_flag = BLE_DEF;
             NRF_LOG_INFO("Ctl disconnect.");
-        }
+        }else 
+        {
+			ble_conn_flag = BLE_DEF;
+		}
     }
 }
 static void scheduler_init(void)
