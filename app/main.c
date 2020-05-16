@@ -127,7 +127,7 @@
 #define BLE_DEF                         0
 #define BLE_ON                          1
 #define BLE_OFF                         2
-#define BLE_DISCON                      3
+#define BLE_CHANGE_STA                  3
 #define BLE_CHAGE_STA                   4
 
 #define NO_CHARGE                       0
@@ -204,11 +204,19 @@
 #define UART_CMD_BLE_VERSION           0x06
 #define UART_CMD_CTL_BLE               0x07
 #define UART_CMD_RESET_BLE             0x08
+#define UART_CMD_DFU_STA			   0x0a
+
 //VALUE
 #define VALUE_CONNECT                  0x01
 #define VALUE_DISCONNECT               0x02
 #define VALUE_SECCESS                  0x01
 #define VALUE_FAILED                   0x02
+//DFU STATUS
+#define VALUE_PREPARE_DFU			   0x01
+#define VALUE_ENTER_DFU                0x02
+#define VALUE_ENTER_FAILED			   0x03
+#define VALUE_RSP_FAILED			   0x04
+#define VALUE_UNKNOWN_ERR			   0x05
 
 //DATA FLAG
 #define DATA_INIT                       0x00
@@ -1020,12 +1028,18 @@ static void advertising_config_get(ble_adv_modes_config_t * p_config)
  */
 static void ble_dfu_evt_handler(ble_dfu_buttonless_evt_type_t event)
 {
+#ifdef UART_TRANS
+    bak_buff[0] = UART_CMD_DFU_STA;
+    bak_buff[1] = 0x01;
+#endif			
     switch (event)
     {
         case BLE_DFU_EVT_BOOTLOADER_ENTER_PREPARE:
         {
             NRF_LOG_INFO("Device is preparing to enter bootloader mode.");
-
+#ifdef UART_TRANS
+            bak_buff[2] = VALUE_PREPARE_DFU;
+#endif
             // Prevent device from advertising on disconnect.
             ble_adv_modes_config_t config;
             advertising_config_get(&config);
@@ -1041,18 +1055,27 @@ static void ble_dfu_evt_handler(ble_dfu_buttonless_evt_type_t event)
         }
 
         case BLE_DFU_EVT_BOOTLOADER_ENTER:
+#ifdef UART_TRANS
+            bak_buff[2] = VALUE_ENTER_DFU;
+#endif
             // YOUR_JOB: Write app-specific unwritten data to FLASH, control finalization of this
             //           by delaying reset by reporting false in app_shutdown_handler
             NRF_LOG_INFO("Device will enter bootloader mode.");
             break;
 
         case BLE_DFU_EVT_BOOTLOADER_ENTER_FAILED:
+#ifdef UART_TRANS
+            bak_buff[2] = VALUE_ENTER_FAILED;
+#endif				
             NRF_LOG_ERROR("Request to enter bootloader mode failed asynchroneously.");
             // YOUR_JOB: Take corrective measures to resolve the issue
             //           like calling APP_ERROR_CHECK to reset the device.
             break;
 
         case BLE_DFU_EVT_RESPONSE_SEND_ERROR:
+#ifdef UART_TRANS
+            bak_buff[2] = VALUE_RSP_FAILED;
+#endif						
             NRF_LOG_ERROR("Request to send a response to client failed.");
             // YOUR_JOB: Take corrective measures to resolve the issue
             //           like calling APP_ERROR_CHECK to reset the device.
@@ -1060,9 +1083,15 @@ static void ble_dfu_evt_handler(ble_dfu_buttonless_evt_type_t event)
             break;
 
         default:
+#ifdef UART_TRANS
+            bak_buff[2] = VALUE_UNKNOWN_ERR;
+#endif
             NRF_LOG_ERROR("Unknown event from ble_dfu_buttonless.");
             break;
     }
+#ifdef UART_TRANS	
+	send_stm_data(bak_buff,bak_buff[1]);
+#endif
 }
 #endif
 /**@brief Function for handling the data from the Nordic UART Service.
@@ -1683,15 +1712,17 @@ void uart_event_handle(app_uart_evt_t * p_event)
                     case UART_CMD_CTL_BLE:
                         if(BLE_ON == data_array[6])
                         {
-                            ble_adv_switch_flag = BLE_ON;
-                            NRF_LOG_INFO("RCV ble flag ON.\n");
-                        }else if(BLE_OFF == data_array[6])
+                            if(ble_adv_switch_flag == BLE_ON)
+                            {
+                            	ble_adv_switch_flag = BLE_OFF;
+                            }else
+                            {
+								ble_adv_switch_flag = BLE_ON;
+							}
+                            NRF_LOG_INFO("RCV change ble status.\n");
+                        }else if(BLE_CHANGE_STA == data_array[6])
                         {
-                            ble_adv_switch_flag = BLE_OFF;
-                            NRF_LOG_INFO("RCV ble flag OFF.\n");
-                        }else if(BLE_DISCON == data_array[6])
-                        {
-                            ble_conn_flag = BLE_DISCON;
+                            ble_conn_flag = BLE_CHANGE_STA;
 							 NRF_LOG_INFO("RCV ble flag DIS.\n");
                         }
                         ctl_channel_flag = UART_CHANNEL;
@@ -2250,7 +2281,7 @@ static void ble_ctl_process(void *p_event_data,uint16_t event_size)
             }              
         }
     }
-	if(BLE_DISCON == ble_conn_flag)
+	if(BLE_CHANGE_STA == ble_conn_flag)
     {
         if(BLE_CONNECT == ble_evt_flag)
         {
