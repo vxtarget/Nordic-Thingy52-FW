@@ -130,7 +130,6 @@
 #define BLE_ON                          1
 #define BLE_OFF                         2
 #define BLE_CHANGE_STA                  3
-#define BLE_CHAGE_STA                   4
 
 #define NO_CHARGE                       0
 #define USB_CHARGE                      1
@@ -713,6 +712,14 @@ void m_1s_timeout_hander(void * p_context)
         send_stm_data(bak_buff,bak_buff[1]);
     }
 
+	if(one_second_counter == 1 && flag_ble == 0)
+	{
+		flag_ble = 1;
+		bak_buff[0] = UART_CMD_CTL_BLE;
+        bak_buff[1] = 0x01;
+        bak_buff[2] = ((ble_status_flag-1)^1);
+		send_stm_data(bak_buff,bak_buff[1]);
+	}
 #endif
 
     if(one_second_counter >=20)
@@ -1698,16 +1705,13 @@ void uart_event_handle(app_uart_evt_t * p_event)
                     case UART_CMD_CTL_BLE:
                         if(BLE_ON == data_array[6])
                         {
-                            if(ble_status_flag == BLE_ON)
-                            {
-                            	ble_adv_switch_flag = BLE_OFF;
-								NRF_LOG_INFO("RCV ble OFF.");
-                            }else
-                            {
-								ble_adv_switch_flag = BLE_ON;
-								NRF_LOG_INFO("RCV ble ON.");
-							}
-                        }else if(BLE_CHANGE_STA == data_array[6])
+							ble_adv_switch_flag = BLE_ON;
+							NRF_LOG_INFO("RCV ble ON.");
+                        }else if(0 == data_array[6])
+                        {
+							ble_adv_switch_flag = BLE_OFF;
+							NRF_LOG_INFO("RCV ble OFF.");
+						}else if(BLE_CHANGE_STA == data_array[6])
                         {
                             ble_conn_flag = BLE_CHANGE_STA;
 							NRF_LOG_INFO("RCV ble flag DIS.");
@@ -1963,7 +1967,7 @@ static void gpiote_init(void)
     err_code = nrf_drv_gpiote_init();
     APP_ERROR_CHECK(err_code);
 
-    nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_TOGGLE(true);
+    nrf_drv_gpiote_in_config_t in_config = NRFX_GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
     in_config.pull = NRF_GPIO_PIN_PULLUP;
 
     err_code = nrf_drv_gpiote_in_init(TWI_STATUS_GPIO, &in_config, in_pin_handler);
