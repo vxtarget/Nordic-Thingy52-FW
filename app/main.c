@@ -670,7 +670,8 @@ void m_100ms_timeout_hander(void * p_context)
 void m_1s_timeout_hander(void * p_context)
 {
     static uint8_t flag = 0;
-    
+    static uint8_t flag_ble=0;
+	
     UNUSED_PARAMETER(p_context);
 
     one_second_counter++;
@@ -1051,7 +1052,7 @@ static void ble_dfu_evt_handler(ble_dfu_buttonless_evt_type_t event)
         case BLE_DFU_EVT_BOOTLOADER_ENTER_FAILED:
 #ifdef UART_TRANS
             bak_buff[2] = VALUE_ENTER_FAILED;
-#endif				
+#endif
             NRF_LOG_ERROR("Request to enter bootloader mode failed asynchroneously.");
             // YOUR_JOB: Take corrective measures to resolve the issue
             //           like calling APP_ERROR_CHECK to reset the device.
@@ -1709,7 +1710,7 @@ void uart_event_handle(app_uart_evt_t * p_event)
                         }else if(BLE_CHANGE_STA == data_array[6])
                         {
                             ble_conn_flag = BLE_CHANGE_STA;
-							 NRF_LOG_INFO("RCV ble flag DIS.\n");
+							NRF_LOG_INFO("RCV ble flag DIS.");
                         }
                         ctl_channel_flag = UART_CHANNEL;
                         break;
@@ -2210,7 +2211,7 @@ static void ble_ctl_process(void *p_event_data,uint16_t event_size)
         ble_adv_switch_flag = BLE_DEF;
         if(BLE_OFF == ble_status_flag)
         {
-            advertising_start();                     
+            advertising_start();
             flash_data_write(m_data2);
             ble_status_flag = BLE_ON;
             NRF_LOG_INFO("2-Start advertisement.\n");
