@@ -247,7 +247,7 @@ nrf_drv_wdt_channel_id m_channel_id;
 
 static volatile uint8_t one_second_counter=0;
 static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
-static volatile uint8_t i2c_evt_flag = DEFAULT_FLAG;
+uint8_t i2c_evt_flag = DEFAULT_FLAG;
 volatile uint8_t ble_adv_switch_flag = BLE_DEF;
 static volatile uint8_t ble_conn_flag = BLE_DEF;
 static volatile uint8_t trans_info_flag = 0;

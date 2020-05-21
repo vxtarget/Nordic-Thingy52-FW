@@ -77,6 +77,7 @@ uint32_t nfc_data_out_len=0;
 bool data_recived_flag=false;
 uint8_t data_recived_buf[APDU_BUFF_SIZE];
 uint16_t data_recived_len=0;
+extern uint8_t i2c_evt_flag;
 
 void apdu_command(const uint8_t *p_buf,uint32_t data_len);
 bool apdu_cmd =false;
@@ -289,6 +290,7 @@ static void nfc_callback(void          * context,
 #endif
             break;
         case NFC_T4T_EVENT_DATA_IND:
+			i2c_evt_flag = 0;
             if (dataLength > APDU_BUFF_SIZE)
             {
                 APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
