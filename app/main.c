@@ -2229,7 +2229,7 @@ static void ble_ctl_process(void *p_event_data,uint16_t event_size)
     }
 	if(BLE_CHANGE_STA == ble_conn_flag)
     {
-        if(BLE_CONNECT == ble_evt_flag)
+        if(ble_evt_flag != BLE_DISCONNECT || ble_evt_flag != BLE_DEFAULT)
         {
             sd_ble_gap_disconnect(m_conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
             ble_evt_flag = BLE_DISCONNECT;
