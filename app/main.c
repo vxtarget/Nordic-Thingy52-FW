@@ -232,6 +232,13 @@
 #define NFC_CHANNEL                     0x02
 #define UART_CHANNEL                    0x03
 
+#define UART_DEF						0x00
+#define ACTIVE_SEND_UART				0x01
+#define RESPONESE_NAME_UART				0x02
+#define RESPONESE_BAT_UART				0x03
+#define RESPONESE_VER_UART				0x04
+#define DEF_RESP						0xFF
+
 #endif
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
@@ -250,7 +257,7 @@ static volatile uint8_t ble_evt_flag = BLE_DEFAULT;
 uint8_t i2c_evt_flag = DEFAULT_FLAG;
 volatile uint8_t ble_adv_switch_flag = BLE_DEF;
 static volatile uint8_t ble_conn_flag = BLE_DEF;
-static volatile uint8_t trans_info_flag = 0;
+static volatile uint8_t trans_info_flag = UART_DEF;
 static volatile uint8_t ble_reset_flag=0;
 static uint8_t mac_ascii[12];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
@@ -679,19 +686,6 @@ void m_1s_timeout_hander(void * p_context)
     nrf_drv_wdt_channel_feed(m_channel_id);
 
 #ifdef UART_TRANS
-    if(0 == trans_info_flag)
-    {
-        bak_buff[0] = UART_CMD_ADV_NAME;
-        bak_buff[1] = 0x12;
-        memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
-        send_stm_data(bak_buff,bak_buff[1]);
-
-        bak_buff[0] = UART_CMD_BLE_VERSION;
-        bak_buff[1] = 0x05;
-        memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
-        send_stm_data(bak_buff,bak_buff[1]);
-        trans_info_flag = 1;
-    }
     if(bat_level_to_st != 0xff)
     {
         if(flag == 0)
@@ -1721,6 +1715,15 @@ void uart_event_handle(app_uart_evt_t * p_event)
                     case UART_CMD_RESET_BLE:
                         NVIC_SystemReset();
                         break;
+					case UART_CMD_ADV_NAME:
+						trans_info_flag = RESPONESE_NAME_UART;
+						break;
+					case UART_CMD_BAT_PERCENT:
+						trans_info_flag = RESPONESE_BAT_UART;
+						break;
+					case UART_CMD_BLE_VERSION:
+						trans_info_flag = RESPONESE_VER_UART;
+						break;
                     default:
                         break;
                 }
@@ -2175,6 +2178,31 @@ static void wdt_init(void)
     nrf_drv_wdt_enable();
 }
 
+static void rsp_st_uast_cmd(void *p_event_data,uint16_t event_size)
+{
+	if(RESPONESE_NAME_UART == trans_info_flag)
+    {
+        bak_buff[0] = UART_CMD_ADV_NAME;
+        bak_buff[1] = 0x12;
+        memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
+        send_stm_data(bak_buff,bak_buff[1]);
+        trans_info_flag = DEF_RESP;
+    }else if(trans_info_flag == RESPONESE_VER_UART)
+    {
+		bak_buff[0] = UART_CMD_BLE_VERSION;
+        bak_buff[1] = 0x05;
+        memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
+        send_stm_data(bak_buff,bak_buff[1]);
+		trans_info_flag = DEF_RESP;
+	}else if(trans_info_flag == RESPONESE_BAT_UART)
+	{
+        bak_buff[0] = UART_CMD_BAT_PERCENT;
+        bak_buff[1] = 0x01;
+        bak_buff[2] = bat_level_to_st;
+        send_stm_data(bak_buff,bak_buff[1]);
+		trans_info_flag = DEF_RESP;
+	}
+}
 static void ble_ctl_process(void *p_event_data,uint16_t event_size)
 {
     if(BLE_OFF == ble_adv_switch_flag)
@@ -2248,6 +2276,7 @@ static void scheduler_init(void)
 static void main_loop(void)
 {   
     app_sched_event_put(NULL,NULL,ble_ctl_process);
+	app_sched_event_put(NULL,NULL,rsp_st_uast_cmd);
 }
 
 int main(void)
