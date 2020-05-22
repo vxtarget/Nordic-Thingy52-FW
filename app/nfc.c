@@ -362,6 +362,7 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
         {
             data_recived_flag = false;
             apdu_cmd = true;
+			reading = false;
             i2c_master_write_ex((uint8_t*)p_buf,data_len,false);
             nfc_data_out_len = 2;
             memcpy(nfc_data_out_buf,"\x90\x00",nfc_data_out_len);    
