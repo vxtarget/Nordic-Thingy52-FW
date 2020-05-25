@@ -686,6 +686,19 @@ void m_1s_timeout_hander(void * p_context)
     nrf_drv_wdt_channel_feed(m_channel_id);
 
 #ifdef UART_TRANS
+    if(0 == trans_info_flag)
+    {
+        bak_buff[0] = UART_CMD_ADV_NAME;
+        bak_buff[1] = 0x12;
+        memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
+        send_stm_data(bak_buff,bak_buff[1]);
+
+        bak_buff[0] = UART_CMD_BLE_VERSION;
+        bak_buff[1] = 0x05;
+        memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
+        send_stm_data(bak_buff,bak_buff[1]);
+        trans_info_flag = 1;
+    }
     if(bat_level_to_st != 0xff)
     {
         if(flag == 0)
