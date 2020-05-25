@@ -1089,9 +1089,6 @@ static void ble_dfu_evt_handler(ble_dfu_buttonless_evt_type_t event)
             NRF_LOG_ERROR("Unknown event from ble_dfu_buttonless.");
             break;
     }
-#ifdef UART_TRANS	
-	send_stm_data(bak_buff,bak_buff[1]);
-#endif
 }
 #endif
 /**@brief Function for handling the data from the Nordic UART Service.
