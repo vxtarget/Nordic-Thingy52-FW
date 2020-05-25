@@ -697,6 +697,11 @@ void m_1s_timeout_hander(void * p_context)
         bak_buff[1] = 0x05;
         memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
         send_stm_data(bak_buff,bak_buff[1]);
+        
+        bak_buff[0] = UART_CMD_BLE_CON_STA;
+        bak_buff[1] = 0x01;
+        bak_buff[2] = VALUE_DISCONNECT;
+        send_stm_data(bak_buff,bak_buff[1]);
         trans_info_flag = 1;
     }
     if(bat_level_to_st != 0xff)
