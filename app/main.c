@@ -107,7 +107,7 @@
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
 #define FW_REVISION                     "s132_nrf52_7.0.1"
-#define SW_REVISION                     "1.0.9"
+#define SW_REVISION                     "1.1.0"
 
 #define APDU_TAG_BLE                    0x44
 
