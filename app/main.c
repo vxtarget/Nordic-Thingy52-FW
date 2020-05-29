@@ -1701,7 +1701,7 @@ void uart_event_handle(app_uart_evt_t * p_event)
                 }
                 lenth = ((uint32_t)data_array[2]<<8)+data_array[3];
             }
-			else if(index >= lenth+5)
+			else if(index >= lenth+4)
             {
                 xor_byte = calcXor(data_array,index-1);
                 if(xor_byte != data_array[index-1])
