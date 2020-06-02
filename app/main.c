@@ -2292,6 +2292,7 @@ static void main_loop(void)
 {   
     app_sched_event_put(NULL,NULL,ble_ctl_process);
 	app_sched_event_put(NULL,NULL,rsp_st_uast_cmd);
+    app_sched_event_put(NULL,NULL,nfc_poll);
 }
 
 int main(void)

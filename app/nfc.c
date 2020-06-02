@@ -71,8 +71,11 @@
 static bool multi_package=false;
 
 //NFC buffer
+uint8_t nfc_apdu[253];
+uint32_t nfc_apdu_len=0;
 uint8_t nfc_data_out_buf[APDU_BUFF_SIZE];
 uint32_t nfc_data_out_len=0;
+bool nfc_multi_packet=false;
 
 bool data_recived_flag=false;
 uint8_t data_recived_buf[APDU_BUFF_SIZE];
@@ -298,7 +301,10 @@ static void nfc_callback(void          * context,
             
             if (flags != NFC_T4T_DI_FLAG_MORE)
             {   
-                //NRF_LOG_INFO("NFC RX data length: %d", dataLength);  
+                memcpy(nfc_apdu,data,dataLength);
+                nfc_apdu_len=dataLength;
+                nfc_multi_packet=false;
+                NRF_LOG_INFO("NFC RX data length: %d", dataLength);  
                 //NRF_LOG_HEXDUMP_INFO(data,dataLength);                
                 apdu_command(data,dataLength);                                
                 if (nfc_data_out_len > 0)
@@ -315,7 +321,11 @@ static void nfc_callback(void          * context,
             else
             {
                 multi_package=true;
-                i2c_master_write_ex((uint8_t*)data,dataLength,true);
+                memcpy(nfc_apdu,data,dataLength);
+                nfc_apdu_len=dataLength;
+                apdu_cmd = true;
+                nfc_multi_packet=true;
+                //i2c_master_write_ex((uint8_t*)data,dataLength,true);
 #ifdef DEV_BSP
                 bsp_board_led_on(BSP_BOARD_LED_2);
 #endif
@@ -352,7 +362,7 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
     {
         multi_package=false;
         apdu_cmd = true;
-        i2c_master_write_ex((uint8_t*)p_buf,data_len,false);
+        //i2c_master_write_ex((uint8_t*)p_buf,data_len,false);
         nfc_data_out_len = 2;
         memcpy(nfc_data_out_buf,"\x90\x00",nfc_data_out_len);  
     }
@@ -363,7 +373,7 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
             data_recived_flag = false;
             apdu_cmd = true;
 			reading = false;
-            i2c_master_write_ex((uint8_t*)p_buf,data_len,false);
+            //i2c_master_write_ex((uint8_t*)p_buf,data_len,false);
             nfc_data_out_len = 2;
             memcpy(nfc_data_out_buf,"\x90\x00",nfc_data_out_len);    
         }
@@ -422,12 +432,12 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
     }
 }
 
-void nfc_poll(void)
+void nfc_poll(void *p_event_data,uint16_t event_size)
 {
-        if(apdu_cmd == true)
-        {
-            apdu_cmd = false;
-            //i2c_master_write(apdu_buf,apdu_len);
-        }
+    if(apdu_cmd == true)
+    {
+        apdu_cmd = false;
+        i2c_master_write_ex(nfc_apdu,nfc_apdu_len,nfc_multi_packet);
+    }
 }
 /** @} */
