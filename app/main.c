@@ -239,6 +239,8 @@
 #define RESPONESE_VER_UART				0x04
 #define DEF_RESP						0xFF
 
+#define BLE_CTL_ADDR					0x6f000
+#define BAT_LVL_ADDR					0x6f004
 #endif
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
@@ -268,6 +270,9 @@ static uint16_t          m_batt_lvl_in_milli_volts=0; //!< Current battery level
 static uint16_t          m_last_volts=0;
 static uint8_t           bat_level_to_st=0xff;
 static uint8_t           backup_bat_level=0xff;
+static uint8_t           usb_ins_flag=0;
+static uint16_t          count_usb_ins=0;
+
 #ifdef BOND_ENABLE
 static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #endif
@@ -349,13 +354,13 @@ void wait_for_flash_ready(nrf_fstorage_t const * p_fstorage)
     }
 }
 
-static void flash_data_write(uint32_t data)
+static void flash_data_write(uint32_t adress,uint32_t data)
 {
     ret_code_t rc;
     
-    nrf_fstorage_erase(&fstorage,0x6f000, 1, NULL);
+    nrf_fstorage_erase(&fstorage,adress, 1, NULL);
     
-    rc = nrf_fstorage_write(&fstorage, 0x6f000, &data, sizeof(m_data), NULL);
+    rc = nrf_fstorage_write(&fstorage, adress, &data, sizeof(m_data), NULL);
     APP_ERROR_CHECK(rc);
 
     wait_for_flash_ready(&fstorage);
@@ -512,6 +517,36 @@ NRF_SDH_STATE_OBSERVER(m_buttonless_dfu_state_obs, 0) =
 {
     .handler = buttonless_dfu_sdh_state_observer,
 };
+static uint8_t calc_bat_level(uint16_t mv_value)
+{
+	uint8_t percentage_batt_level;
+	uint8_t bat_level;
+	
+	percentage_batt_level = battery_level_in_percent(mv_value);
+	                
+    switch(percentage_batt_level)
+    {
+        case 100:
+            bat_level = 4;
+            break;
+        case 75:
+            bat_level = 3;
+            break;
+        case 50:
+            bat_level = 2;
+            break;
+        case 25:
+            bat_level = 1;
+            break;
+        case 0:
+            bat_level = 0;
+            break;
+        default:
+            bat_level = 0;
+            break;
+    }
+	return bat_level;
+}
 /**@brief Function for assert macro callback.
  *
  * @details This function will be called in case of an assert in the SoftDevice.
@@ -533,66 +568,63 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
     if (p_evt->type == NRF_DRV_SAADC_EVT_DONE)
     {
         nrf_saadc_value_t adc_result;
-        uint8_t percentage_batt_level;
-        uint32_t err_code;
-        uint8_t usb_ins_status;
+       
+        uint32_t err_code;        
         
         adc_result = p_evt->data.done.p_buffer[0];
         if (adc_result > 1024)
         {
             adc_result = 1024;
         }
-        usb_ins_status = nrf_gpio_pin_read(USB_INS_PIN);
-        
+        //check usb insert
+		usb_ins_flag = nrf_gpio_pin_read(USB_INS_PIN);
+		
         err_code = nrf_drv_saadc_buffer_convert(p_evt->data.done.p_buffer,1);
         APP_ERROR_CHECK(err_code);
-        m_batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
-        
+        m_batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);		
+		
         if(m_last_volts == 0)
         {
             m_last_volts = m_batt_lvl_in_milli_volts;
         }
         
-        if(usb_ins_status == USB_CHARGE)
-        {
-            m_batt_lvl_in_milli_volts -= 150;
-            if(m_batt_lvl_in_milli_volts > m_last_volts)
+        if(usb_ins_flag == USB_CHARGE)
+        {        	
+			if(bat_level_to_st == 0xFF)
+			{
+				calc_bat_level(m_last_volts);
+			}	
+			if(m_batt_lvl_in_milli_volts > m_last_volts)
             {
                 m_last_volts = m_batt_lvl_in_milli_volts;
             }
+			
+			count_usb_ins++;
+			if(count_usb_ins>300)  //300
+			{
+				count_usb_ins = 0;
+				if(bat_level_to_st<4)
+				{
+					NRF_LOG_INFO("Increase level!");
+					bat_level_to_st +=1;
+				}
+			}		
         }
-        else if(usb_ins_status == NO_CHARGE)
-        {            
+        else if(usb_ins_flag == NO_CHARGE)
+        {   
+        	count_usb_ins = 0;
+			
             if(m_batt_lvl_in_milli_volts < m_last_volts)
             {
                 m_last_volts = m_batt_lvl_in_milli_volts;
             }
+
+			NRF_LOG_INFO("adc is %u mV",m_last_volts);
+			
+			bat_level_to_st = calc_bat_level(m_last_volts);				        
         }
-        
-        percentage_batt_level = battery_level_in_percent(m_last_volts);
-                
-        switch(percentage_batt_level)
-        {
-            case 100:
-                bat_level_to_st = 4;
-                break;
-            case 75:
-                bat_level_to_st = 3;
-                break;
-            case 50:
-                bat_level_to_st = 2;
-                break;
-            case 25:
-                bat_level_to_st = 1;
-                break;
-            case 0:
-                bat_level_to_st = 0;
-                break;
-            default:
-                bat_level_to_st = 0;
-                break;
-        }
-        err_code = ble_bas_battery_level_update(&m_bas,percentage_batt_level,BLE_CONN_HANDLE_ALL);
+		
+        err_code = ble_bas_battery_level_update(&m_bas,battery_level_in_percent(m_last_volts),BLE_CONN_HANDLE_ALL);
         if((err_code != NRF_SUCCESS)&&
             (err_code != NRF_ERROR_INVALID_STATE)&&
             (err_code != NRF_ERROR_RESOURCES)&&
@@ -685,6 +717,7 @@ void m_1s_timeout_hander(void * p_context)
     //feed wdt
     nrf_drv_wdt_channel_feed(m_channel_id);
 
+	
 #ifdef UART_TRANS
     if(0 == trans_info_flag)
     {
@@ -714,13 +747,24 @@ void m_1s_timeout_hander(void * p_context)
             NRF_LOG_INFO("Start long term time");
         }
     }
+
     if((backup_bat_level != bat_level_to_st))
-    {
-        flag = 0;
+    {    	
         backup_bat_level = bat_level_to_st;
         bak_buff[0] = UART_CMD_BAT_PERCENT;
         bak_buff[1] = 0x01;
         bak_buff[2] = bat_level_to_st;
+        send_stm_data(bak_buff,bak_buff[1]);
+		//flash_data_write(BLE_CTL_ADDR,(uint32_t)bat_level_to_st);
+    }
+
+	if(1)
+    {
+        bak_buff[0] = 0x0a;
+        bak_buff[1] = 0x02;
+        bak_buff[2] = ((uint8_t)(m_last_volts>>8));
+        bak_buff[3] = ((uint8_t)m_last_volts);
+		//NRF_LOG_INFO("ADC is %u mV",m_last_volts);
         send_stm_data(bak_buff,bak_buff[1]);
     }
 
@@ -2152,14 +2196,14 @@ static void fs_init(void)
      * store data. */
     (void) nrf5_flash_end_addr_get();
 
-      //flash_data_write(m_data);
+      //flash_data_write(BLE_CTL_FLAG,m_data);
 }
 static void ctl_advertising(void)
 {
-    uint32_t addr=0x6f000,len=4;
+    uint32_t len=4;
     uint8_t data[4];
 
-    nrf_fstorage_read(&fstorage, addr, data, len);
+    nrf_fstorage_read(&fstorage, BLE_CTL_ADDR, data, len);
     if(((0xFF == data[0])&&(0xFF == data[1])&&(0xFF == data[2])&&(0xFF == data[3]))||
         ((0xFE == data[0])&&(0x0F == data[1])&&(0xDC == data[2])&&(0xBA == data[3])))
     {
@@ -2178,6 +2222,23 @@ static void ctl_advertising(void)
         advertising_start();
         NRF_LOG_INFO("3-Start adv.\n");
     }
+}
+
+static void read_last_bat_level(void)
+{
+	uint8_t len=4;
+    uint8_t data[4];
+	
+	nrf_fstorage_read(&fstorage, BAT_LVL_ADDR, data, len);
+
+	if(nrf_gpio_pin_read(USB_INS_PIN) != USB_CHARGE)
+	{
+		if(data[0] < bat_level_to_st)
+		{
+			bat_level_to_st = data[0];
+		}
+	}
+	
 }
 /**@brief Application main function.
  */
@@ -2231,7 +2292,7 @@ static void ble_ctl_process(void *p_event_data,uint16_t event_size)
             bak_buff[2] = VALUE_DISCONNECT;
             send_stm_data(bak_buff,bak_buff[1]);
 #endif    		
-            flash_data_write(m_data);
+            flash_data_write(BLE_CTL_ADDR,m_data);
             ble_status_flag = BLE_OFF;
             NRF_LOG_INFO("1-Ble disconnect.\n");
             NRF_LOG_INFO("BLE status is %d",ble_evt_flag);
@@ -2259,7 +2320,7 @@ static void ble_ctl_process(void *p_event_data,uint16_t event_size)
         if(BLE_OFF == ble_status_flag)
         {
             advertising_start();
-            flash_data_write(m_data2);
+            flash_data_write(BLE_CTL_ADDR,m_data2);
             ble_status_flag = BLE_ON;
             NRF_LOG_INFO("2-Start advertisement.\n");
         }
@@ -2329,7 +2390,9 @@ int main(void)
     NRF_LOG_INFO("Debug logging for UART over RTT started.");
 
     ctl_advertising();
-    
+	
+    read_last_bat_level();
+	
     twi_master_init();
     nfc_init();
 
