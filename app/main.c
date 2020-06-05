@@ -108,7 +108,7 @@
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
 #define FW_REVISION                     "s132_nrf52_7.0.1"
-#define SW_REVISION                     "1.1.0"
+#define SW_REVISION                     "1.1.1"
 
 #define APDU_TAG_BLE                    0x44
 
@@ -2287,22 +2287,6 @@ static void ctl_advertising(void)
     }
 }
 
-static void read_last_bat_level(void)
-{
-	uint8_t len=4;
-    uint8_t data[4];
-	
-	nrf_fstorage_read(&fstorage, BAT_LVL_ADDR, data, len);
-
-	if(nrf_gpio_pin_read(USB_INS_PIN) != USB_CHARGE)
-	{
-		if(data[0] < bat_level_to_st)
-		{
-			bat_level_to_st = data[0];
-		}
-	}
-	
-}
 /**@brief Application main function.
  */
 static void wdt_init(void)
