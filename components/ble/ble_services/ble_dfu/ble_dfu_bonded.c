@@ -260,6 +260,7 @@ void ble_dfu_buttonless_on_sys_evt(uint32_t sys_evt, void * p_context)
             mp_dfu->is_waiting_for_reset = false;
         }
 #else   	   
+		nrf_delay_ms(1000);
 		ret = ble_dfu_buttonless_bootloader_start_prepare();
 		if (ret != NRF_SUCCESS)
 		{
