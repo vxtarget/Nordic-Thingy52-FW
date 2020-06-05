@@ -92,6 +92,7 @@
 #include "nrf_drv_wdt.h"
 #include "nrf_fstorage_sd.h"
 #include "nrf_fstorage.h"
+#include "fds_internal_defs.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -149,7 +150,7 @@
 
 #define RCV_DATA_TIMEOUT_INTERVAL       APP_TIMER_TICKS(100)
 #define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(300)                      /**< Battery level measurement interval (ticks). */
-#define BATTERY_MEAS_LONG_INTERVAL      APP_TIMER_TICKS(8000) 
+#define BATTERY_MEAS_LONG_INTERVAL      APP_TIMER_TICKS(120000) 
 #define MIN_BATTERY_LEVEL               81                                          /**< Minimum battery level as returned by the simulated measurement function. */
 #define MAX_BATTERY_LEVEL               100                                         /**< Maximum battery level as returned by the simulated measurement function. */
 #define BATTERY_LEVEL_INCREMENT         1                                           /**< Value by which the battery level is incremented/decremented for each call to the simulated measurement function. */
@@ -240,7 +241,7 @@
 #define DEF_RESP						0xFF
 
 #define BLE_CTL_ADDR					0x6f000
-#define BAT_LVL_ADDR					0x6f004
+#define BAT_LVL_ADDR					0x70000
 #endif
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
@@ -269,6 +270,7 @@ static nrf_saadc_value_t adc_buf[2];
 static uint16_t          m_batt_lvl_in_milli_volts=0; //!< Current battery level.
 static uint16_t          m_last_volts=0;
 static uint8_t           bat_level_to_st=0xff;
+static uint8_t           bat_level_flag=0;
 static uint8_t           backup_bat_level=0xff;
 static uint8_t           usb_ins_flag=0;
 static uint16_t          count_usb_ins=0;
@@ -310,6 +312,7 @@ static void adc_configure(void);
 /* Dummy data to write to flash. */
 static uint32_t m_data2          = 0xBADC0FFE;
 static uint32_t m_data         = 0xABABABAB;
+static uint32_t m_data3			=0x00000001;
 static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt);
 static uint8_t bond_check_key_flag = INIT_VALUE;
 static uint8_t rcv_head_flag = 0;
@@ -330,7 +333,7 @@ NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
      * The function nrf5_flash_end_addr_get() can be used to retrieve the last address on the
      * last page of flash available to write data. */
     .start_addr = 0x6f000,
-    .end_addr   = 0x6ffff,
+    .end_addr   = 0x71000,
 };
 
 /**@brief   Helper function to obtain the last address on the last page of the on-chip flash that
@@ -358,7 +361,7 @@ static void flash_data_write(uint32_t adress,uint32_t data)
 {
     ret_code_t rc;
     
-    nrf_fstorage_erase(&fstorage,adress, 1, NULL);
+    nrf_fstorage_erase(&fstorage,adress, FDS_PHY_PAGES_IN_VPAGE, NULL);
     
     rc = nrf_fstorage_write(&fstorage, adress, &data, sizeof(m_data), NULL);
     APP_ERROR_CHECK(rc);
@@ -542,7 +545,6 @@ static uint8_t calc_bat_level(uint16_t mv_value)
             bat_level = 0;
             break;
         default:
-            bat_level = 0;
             break;
     }
 	return bat_level;
@@ -565,6 +567,10 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
 
 static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
 {
+	static uint16_t charge_time=0;
+	static uint8_t  power_change_flag=0;
+	static uint8_t  bk_level=0;
+	
     if (p_evt->type == NRF_DRV_SAADC_EVT_DONE)
     {
         nrf_saadc_value_t adc_result;
@@ -575,8 +581,7 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
         if (adc_result > 1024)
         {
             adc_result = 1024;
-        }
-        //check usb insert
+        }        
 		usb_ins_flag = nrf_gpio_pin_read(USB_INS_PIN);
 		
         err_code = nrf_drv_saadc_buffer_convert(p_evt->data.done.p_buffer,1);
@@ -589,28 +594,43 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
         }
         
         if(usb_ins_flag == USB_CHARGE)
-        {        	
-			if(bat_level_to_st == 0xFF)
-			{
-				calc_bat_level(m_last_volts);
-			}	
+        {        				
 			if(m_batt_lvl_in_milli_volts > m_last_volts)
             {
                 m_last_volts = m_batt_lvl_in_milli_volts;
             }
+			if(bat_level_to_st == 0xFF)
+			{
+				m_last_volts -=168;
+				bat_level_to_st = calc_bat_level(m_last_volts);	
+			}	
+
+			if(power_change_flag == 0)
+			{
+				power_change_flag =1;
+			}
+			NRF_LOG_INFO("charge adc is %u mV",m_last_volts);
 			
 			count_usb_ins++;
-			if(count_usb_ins>300)  //300
+			if((0 == bat_level_to_st)||(1 == bat_level_to_st))
+			{
+				charge_time = 5;
+			}else if((2 == bat_level_to_st)||(3 == bat_level_to_st))
+			{
+				charge_time = 10;
+			}
+			
+			if(count_usb_ins>charge_time)  
 			{
 				count_usb_ins = 0;
 				if(bat_level_to_st<4)
 				{
-					NRF_LOG_INFO("Increase level!");
+					NRF_LOG_INFO("increase level");
 					bat_level_to_st +=1;
 				}
 			}		
         }
-        else if(usb_ins_flag == NO_CHARGE)
+		else if(usb_ins_flag == NO_CHARGE)
         {   
         	count_usb_ins = 0;
 			
@@ -618,10 +638,24 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
             {
                 m_last_volts = m_batt_lvl_in_milli_volts;
             }
-
-			NRF_LOG_INFO("adc is %u mV",m_last_volts);
 			
-			bat_level_to_st = calc_bat_level(m_last_volts);				        
+			NRF_LOG_INFO("no charge adc is %u mV",m_last_volts);
+			NRF_LOG_INFO("m_batt_lvl_in_milli_volts %u mV",m_batt_lvl_in_milli_volts);
+			
+			if(power_change_flag == 1)
+			{
+				bk_level = calc_bat_level(m_last_volts);
+				NRF_LOG_INFO("bk_level is %u\n",bk_level);
+				if(bk_level <bat_level_to_st)
+				{
+					bat_level_to_st = bk_level;
+					NRF_LOG_INFO("bat_level_to_st is %u",bat_level_to_st);
+					power_change_flag = 0;
+				}
+			}else 
+			{
+				bat_level_to_st = calc_bat_level(m_last_volts);	
+			}												        
         }
 		
         err_code = ble_bas_battery_level_update(&m_bas,battery_level_in_percent(m_last_volts),BLE_CONN_HANDLE_ALL);
@@ -717,6 +751,8 @@ void m_1s_timeout_hander(void * p_context)
     //feed wdt
     nrf_drv_wdt_channel_feed(m_channel_id);
 
+	//check usb insert	
+	usb_ins_flag = nrf_gpio_pin_read(USB_INS_PIN);
 	
 #ifdef UART_TRANS
     if(0 == trans_info_flag)
@@ -749,23 +785,42 @@ void m_1s_timeout_hander(void * p_context)
     }
 
     if((backup_bat_level != bat_level_to_st))
-    {    	
-        backup_bat_level = bat_level_to_st;
+    {   
+    	NRF_LOG_INFO("backup_bat_level %d ",backup_bat_level);
+		NRF_LOG_INFO("bat_level_to_st %d ",bat_level_to_st);
+    	if(USB_CHARGE == usb_ins_flag)
+    	{    		
+    		if(backup_bat_level != 0xFF)
+			{
+				backup_bat_level = (bat_level_to_st-backup_bat_level>1)?(++backup_bat_level):bat_level_to_st;
+    		}else
+    		{
+				backup_bat_level = bat_level_to_st;
+			}
+			NRF_LOG_INFO("usb insert %d \n",backup_bat_level);
+		}else if(NO_CHARGE == usb_ins_flag)
+		{	
+			if(backup_bat_level != 0xFF)
+			{
+				backup_bat_level = (backup_bat_level-bat_level_to_st>1)?(--backup_bat_level):bat_level_to_st;
+			}else
+			{
+				backup_bat_level = bat_level_to_st;
+				NRF_LOG_INFO("first init",bat_level_to_st);
+			}
+			NRF_LOG_INFO("no charge %d \n",backup_bat_level);
+		}
         bak_buff[0] = UART_CMD_BAT_PERCENT;
         bak_buff[1] = 0x01;
         bak_buff[2] = bat_level_to_st;
         send_stm_data(bak_buff,bak_buff[1]);
-		//flash_data_write(BLE_CTL_ADDR,(uint32_t)bat_level_to_st);
-    }
-
-	if(1)
-    {
-        bak_buff[0] = 0x0a;
-        bak_buff[1] = 0x02;
-        bak_buff[2] = ((uint8_t)(m_last_volts>>8));
-        bak_buff[3] = ((uint8_t)m_last_volts);
-		//NRF_LOG_INFO("ADC is %u mV",m_last_volts);
-        send_stm_data(bak_buff,bak_buff[1]);
+		if(bat_level_flag == 1)
+		{
+			bat_level_flag = 2;
+		}else if(bat_level_flag == 0)
+		{
+			bat_level_flag = 1;
+		}
     }
 
 	if(one_second_counter == 1 && flag_ble == 0)
@@ -2254,7 +2309,7 @@ static void wdt_init(void)
     nrf_drv_wdt_enable();
 }
 
-static void rsp_st_uast_cmd(void *p_event_data,uint16_t event_size)
+static void rsp_st_uart_cmd(void *p_event_data,uint16_t event_size)
 {
 	if(RESPONESE_NAME_UART == trans_info_flag)
     {
@@ -2277,7 +2332,32 @@ static void rsp_st_uast_cmd(void *p_event_data,uint16_t event_size)
         bak_buff[2] = bat_level_to_st;
         send_stm_data(bak_buff,bak_buff[1]);
 		trans_info_flag = DEF_RESP;
+	}	
+}
+static void manage_bat_level(void *p_event_data,uint16_t event_size)
+{
+	static uint8_t read_flag=0;
+	uint32_t len=4;
+    uint8_t data[4];    
+
+	if(read_flag == 0)
+	{
+		read_flag =1;
+		nrf_fstorage_read(&fstorage, BAT_LVL_ADDR, data, len);
+		if(data[0]<=4)
+		{
+			bat_level_to_st = data[0];
+			NRF_LOG_INFO("read storrage level is %d",bat_level_to_st);
+		}
 	}
+    if(bat_level_flag == 2)
+    {   
+    	bat_level_flag = 1;		
+		m_data3 = (uint32_t)bat_level_to_st;
+		flash_data_write(BAT_LVL_ADDR,m_data3);
+		nrf_fstorage_read(&fstorage, BAT_LVL_ADDR, data, len);
+		NRF_LOG_INFO("buff0 %d,buff1 %d,buff2 %d,buff3 %d",data[0],data[1],data[2],data[3]);					
+    }
 }
 static void ble_ctl_process(void *p_event_data,uint16_t event_size)
 {
@@ -2352,7 +2432,8 @@ static void scheduler_init(void)
 static void main_loop(void)
 {   
     app_sched_event_put(NULL,NULL,ble_ctl_process);
-	app_sched_event_put(NULL,NULL,rsp_st_uast_cmd);
+	app_sched_event_put(NULL,NULL,rsp_st_uart_cmd);
+	app_sched_event_put(NULL,NULL,manage_bat_level);
     app_sched_event_put(NULL,NULL,nfc_poll);
 }
 
@@ -2389,9 +2470,7 @@ int main(void)
     // Start execution.
     NRF_LOG_INFO("Debug logging for UART over RTT started.");
 
-    ctl_advertising();
-	
-    read_last_bat_level();
+    ctl_advertising();	    
 	
     twi_master_init();
     nfc_init();
