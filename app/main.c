@@ -271,6 +271,7 @@ static uint16_t          m_batt_lvl_in_milli_volts=0; //!< Current battery level
 static uint16_t          m_last_volts=0;
 static uint8_t           bat_level_to_st=0xff;
 static uint8_t           bat_level_flag=0;
+static uint8_t 			 read_flag=0;
 static uint8_t           backup_bat_level=0xff;
 static uint8_t           usb_ins_flag=0;
 static uint16_t          count_usb_ins=0;
@@ -610,7 +611,7 @@ static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
 				power_change_flag =1;
 			}
 			NRF_LOG_INFO("charge adc is %u mV",m_last_volts);
-			
+			NRF_LOG_INFO("bat_level_to_st is %d",bat_level_to_st);
 			count_usb_ins++;
 			if((0 == bat_level_to_st)||(1 == bat_level_to_st))
 			{
@@ -784,10 +785,11 @@ void m_1s_timeout_hander(void * p_context)
         }
     }
 
-    if((backup_bat_level != bat_level_to_st))
+    if((backup_bat_level != bat_level_to_st)||(read_flag == 1))
     {   
     	NRF_LOG_INFO("backup_bat_level %d ",backup_bat_level);
 		NRF_LOG_INFO("bat_level_to_st %d ",bat_level_to_st);
+		read_flag =2;
     	if(USB_CHARGE == usb_ins_flag)
     	{    		
     		if(backup_bat_level != 0xFF)
@@ -802,7 +804,13 @@ void m_1s_timeout_hander(void * p_context)
 		{	
 			if(backup_bat_level != 0xFF)
 			{
-				backup_bat_level = (backup_bat_level-bat_level_to_st>1)?(--backup_bat_level):bat_level_to_st;
+				if(backup_bat_level>bat_level_to_st)
+				{
+					backup_bat_level = (backup_bat_level-bat_level_to_st>1)?(--backup_bat_level):bat_level_to_st;
+				}else
+				{
+					bat_level_to_st = backup_bat_level;
+				}
 			}else
 			{
 				backup_bat_level = bat_level_to_st;
@@ -812,7 +820,7 @@ void m_1s_timeout_hander(void * p_context)
 		}
         bak_buff[0] = UART_CMD_BAT_PERCENT;
         bak_buff[1] = 0x01;
-        bak_buff[2] = bat_level_to_st;
+        bak_buff[2] = backup_bat_level;
         send_stm_data(bak_buff,bak_buff[1]);
 		if(bat_level_flag == 1)
 		{
@@ -2336,7 +2344,6 @@ static void rsp_st_uart_cmd(void *p_event_data,uint16_t event_size)
 }
 static void manage_bat_level(void *p_event_data,uint16_t event_size)
 {
-	static uint8_t read_flag=0;
 	uint32_t len=4;
     uint8_t data[4];    
 
@@ -2346,14 +2353,14 @@ static void manage_bat_level(void *p_event_data,uint16_t event_size)
 		nrf_fstorage_read(&fstorage, BAT_LVL_ADDR, data, len);
 		if(data[0]<=4)
 		{
-			bat_level_to_st = data[0];
-			NRF_LOG_INFO("read storrage level is %d",bat_level_to_st);
+			backup_bat_level = data[0];
+			NRF_LOG_INFO("read storrage level is %d",backup_bat_level);
 		}
 	}
     if(bat_level_flag == 2)
     {   
     	bat_level_flag = 1;		
-		m_data3 = (uint32_t)bat_level_to_st;
+		m_data3 = (uint32_t)backup_bat_level;
 		flash_data_write(BAT_LVL_ADDR,m_data3);
 		nrf_fstorage_read(&fstorage, BAT_LVL_ADDR, data, len);
 		NRF_LOG_INFO("buff0 %d,buff1 %d,buff2 %d,buff3 %d",data[0],data[1],data[2],data[3]);					
