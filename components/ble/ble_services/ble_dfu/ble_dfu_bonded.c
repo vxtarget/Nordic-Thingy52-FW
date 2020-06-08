@@ -251,7 +251,6 @@ void ble_dfu_buttonless_on_sys_evt(uint32_t sys_evt, void * p_context)
         mp_dfu->is_waiting_for_reset = true;
         mp_dfu->is_waiting_for_svci  = false;
 
-#if 0
         // Report back the positive response
         ret = ble_dfu_buttonless_resp_send(DFU_OP_ENTER_BOOTLOADER, DFU_RSP_SUCCESS);
         if (ret != NRF_SUCCESS)
@@ -259,15 +258,6 @@ void ble_dfu_buttonless_on_sys_evt(uint32_t sys_evt, void * p_context)
             mp_dfu->evt_handler(BLE_DFU_EVT_RESPONSE_SEND_ERROR);
             mp_dfu->is_waiting_for_reset = false;
         }
-#else   	   
-		nrf_delay_ms(1000);
-		ret = ble_dfu_buttonless_bootloader_start_prepare();
-		if (ret != NRF_SUCCESS)
-		{
-			mp_dfu->evt_handler(BLE_DFU_EVT_BOOTLOADER_ENTER_FAILED);
-		}  
-
-#endif
     }
     else
     {

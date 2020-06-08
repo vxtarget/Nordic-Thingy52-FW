@@ -370,7 +370,7 @@ bool gscm_service_changed_ind_needed(uint16_t conn_handle)
 ret_code_t gscm_service_changed_ind_send(uint16_t conn_handle)
 {
     static uint16_t start_handle;
-    const  uint16_t end_handle = 0xFFFF;
+    //const  uint16_t end_handle = 0xFFFF;
     ret_code_t err_code;
 
     err_code = sd_ble_gatts_initial_user_handle_get(&start_handle);
@@ -382,14 +382,14 @@ ret_code_t gscm_service_changed_ind_send(uint16_t conn_handle)
         return NRF_ERROR_INTERNAL;
     }
 
-    do
-    {
-        err_code = sd_ble_gatts_service_changed(conn_handle, start_handle, end_handle);
-        if (err_code == BLE_ERROR_INVALID_ATTR_HANDLE)
-        {
-            start_handle += 1;
-        }
-    } while (err_code == BLE_ERROR_INVALID_ATTR_HANDLE);
+    //do
+    //{
+        //err_code = sd_ble_gatts_service_changed(conn_handle, start_handle, end_handle);
+        //if (err_code == BLE_ERROR_INVALID_ATTR_HANDLE)
+        //{
+            //start_handle += 1;
+        //}
+    //} while (err_code == BLE_ERROR_INVALID_ATTR_HANDLE);
 
     return err_code;
 }
