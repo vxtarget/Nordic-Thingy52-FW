@@ -1798,16 +1798,32 @@ void uart_event_handle(app_uart_evt_t * p_event)
         case APP_UART_DATA_READY:
             UNUSED_VARIABLE(app_uart_get(&data_array[index]));
             index++;
-            
-            if(index==4)
+
+			if(1 == index)
+			{
+				if((UART_TX_TAG != data_array[0])&&(UART_TX_TAG2 != data_array[0]))
+				{
+					index=0;
+                    return;
+				}
+            }else if(2 == index)
             {
-                if((UART_TX_TAG != data_array[0])&&(UART_TX_TAG2 != data_array[1]))
+                if((UART_TX_TAG2 != data_array[1])&&(UART_TX_TAG != data_array[1]))
                 {
                     index=0;
                     return;
-                }
-                lenth = ((uint32_t)data_array[2]<<8)+data_array[3];
-            }
+                }     
+            }else if(3 == index)
+            {
+            	if((UART_TX_TAG2 == data_array[0])&&(UART_TX_TAG == data_array[1]))
+	            {	                
+                	index = 0;
+                    return;
+	            }
+            }else if(4 == index)
+            {
+				lenth = ((uint32_t)data_array[2]<<8)+data_array[3];
+			}
 			else if(index >= lenth+4)
             {
                 xor_byte = calcXor(data_array,index-1);
@@ -1850,15 +1866,7 @@ void uart_event_handle(app_uart_evt_t * p_event)
                         break;
                 }
                 index=0;
-            }
-            if((UART_TX_TAG2 == data_array[0])&&(UART_TX_TAG == data_array[1]))
-            {
-                index = 0;
-                if(0x01 != data_array[1])
-                {
-                    return;
-                }
-            }
+            }            
             break;
 
         case APP_UART_COMMUNICATION_ERROR:
