@@ -149,7 +149,7 @@
 #define SCHED_QUEUE_SIZE                20                                          //!< Size of the scheduler queue.
 
 #define RCV_DATA_TIMEOUT_INTERVAL       APP_TIMER_TICKS(100)
-#define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(300)                      /**< Battery level measurement interval (ticks). */
+#define BATTERY_LEVEL_MEAS_INTERVAL     APP_TIMER_TICKS(1000)                      /**< Battery level measurement interval (ticks). */
 #define BATTERY_MEAS_LONG_INTERVAL      APP_TIMER_TICKS(120000) 
 #define MIN_BATTERY_LEVEL               81                                          /**< Minimum battery level as returned by the simulated measurement function. */
 #define MAX_BATTERY_LEVEL               100                                         /**< Maximum battery level as returned by the simulated measurement function. */
