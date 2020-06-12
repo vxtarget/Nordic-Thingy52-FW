@@ -145,6 +145,8 @@ typedef struct
 
 static nrfx_nfct_control_block_t m_nfct_cb;
 
+static nrfx_nfct_config_t init_config;
+
 /**
  * @brief Common part of the setup used for the NFCT initialization and reinitialization.
  */
@@ -271,17 +273,17 @@ static void nrfx_nfct_activate_check(void)
 #if defined(NRF52832_XXAA) || defined(NRF52832_XXAB)
 static inline void nrfx_nfct_reset(void)
 {
-    uint32_t                       fdm;
-    uint32_t                       int_enabled;
-    uint8_t                        nfcid1[NRF_NFCT_SENSRES_NFCID1_SIZE_TRIPLE];
-    nrf_nfct_sensres_nfcid1_size_t nfcid1_size;
+//    uint32_t                       fdm;
+//    uint32_t                       int_enabled;
+//    uint8_t                        nfcid1[NRF_NFCT_SENSRES_NFCID1_SIZE_TRIPLE];
+//    nrf_nfct_sensres_nfcid1_size_t nfcid1_size;
     nrf_nfct_selres_protocol_t     protocol;
 
     // Save parameter settings before the reset of the NFCT peripheral.
-    fdm         = nrf_nfct_frame_delay_max_get();
-    nfcid1_size = nrf_nfct_nfcid1_get(nfcid1);
+//    fdm         = nrf_nfct_frame_delay_max_get();
+//    nfcid1_size = nrf_nfct_nfcid1_get(nfcid1);
     protocol    = nrf_nfct_selsres_protocol_get();
-    int_enabled = nrf_nfct_int_enable_get();
+//    int_enabled = nrf_nfct_int_enable_get();
 
     // Reset the NFCT peripheral.
     *(volatile uint32_t *)0x40005FFC = 0;
@@ -289,18 +291,22 @@ static inline void nrfx_nfct_reset(void)
     *(volatile uint32_t *)0x40005FFC = 1;
 
     // Restore parameter settings after the reset of the NFCT peripheral.
-    nrf_nfct_frame_delay_max_set(fdm);
-    nrf_nfct_nfcid1_set(nfcid1, nfcid1_size);
+//    nrf_nfct_frame_delay_max_set(fdm);
+//    nrf_nfct_nfcid1_set(nfcid1, nfcid1_size);
     nrf_nfct_selres_protocol_set(protocol);
 
-    // Restore general HW configuration.
-    nrfx_nfct_hw_init_setup();
+//    // Restore general HW configuration.
+//    nrfx_nfct_hw_init_setup();
+    
+    nrfx_nfct_uninit();
+    nrfx_nfct_init(&init_config);
+    nrfx_nfct_enable();
 
     // Restore interrupts.
-    nrf_nfct_int_enable(int_enabled);
+//    nrf_nfct_int_enable(int_enabled);
 
-    // Disable interrupts associated with data exchange.
-    nrf_nfct_int_disable(NRFX_NFCT_RX_INT_MASK | NRFX_NFCT_TX_INT_MASK);
+//    // Disable interrupts associated with data exchange.
+//    nrf_nfct_int_disable(NRFX_NFCT_RX_INT_MASK | NRFX_NFCT_TX_INT_MASK);
 
     NRFX_LOG_INFO("Reinitialize");
 }
@@ -416,7 +422,7 @@ nrfx_err_t nrfx_nfct_init(nrfx_nfct_config_t const * p_config)
     {
         return NRFX_ERROR_INVALID_STATE;
     }
-
+    init_config = *p_config;
     m_nfct_cb.config = *p_config;
     nrfx_nfct_hw_init_setup();
 
