@@ -72,6 +72,7 @@ Init Packet中包含以下内容：
   nrfutil pkg display nrf52832_xxaa_app.zip
   ```
 
+  ```
   DFU Package: <nrf52832_xxaa_app.zip>:
   |
   |- Image count: 1
@@ -83,7 +84,7 @@ Init Packet中包含以下内容：
         |
         |- op_code: INIT
         |- signature_type: ECDSA_P256_SHA256
-        |- signature (little-endian): b'423116ed4791af178d1bb9a4cde9f2af37a70e924f6b3930961e56083c0d7d2c06f0e8480f8ddde3b5b1feef5b0d085f69035d90b204c364b9f6a07dc4b52f78'
+        |- signature (little-endian): 423116ed4791af178d1bb9a4cde9f2af37a70e924f6b3930961e56083c0d7d2c06f0e8480f8ddde3b5b1feef5b0d085f69035d90b204c364b9f6a07dc4b52f78
         |
         |- fw_version: 0x00000003 (3)
         |- hw_version 0x00000034 (52)
@@ -94,9 +95,10 @@ Init Packet中包含以下内容：
         |- app_size: 82564
         |
         |- hash_type: SHA256
-        |- hash (little-endian): b'c31c700cbb16d7b7514860069bf3ee82ce1d16637775ce86454231d7272cd854'
+        |- hash (little-endian): c31c700cbb16d7b7514860069bf3ee82ce1d16637775ce86454231d7272cd854
         |
         |- boot_validation_type: ['VALIDATE_GENERATED_CRC']
-        |- boot_validation_signature (little-endian): [b'']
+        |- boot_validation_signature (little-endian): ['']
         |
         |- is_debug: False
+  ```
