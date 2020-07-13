@@ -102,3 +102,28 @@ Init Packet中包含以下内容：
         |
         |- is_debug: False
   ```
+
+**将HEX转换为BIN**
+
+安装python intelhex工具：
+
+使用pip 安装：
+
+```
+pip install intelhex
+```
+
+或直接下载发布版本：
+
+https://github.com/python-intelhex/intelhex/releases
+
+格式转换：
+
+使用pip 安装后执行：
+
+hex2bin nrf52832_xxaa.hex release_x.x.x.bin
+
+下载发布版本后去当前目录下执行：
+
+python hex2bin.py nrf52832_xxaa.hex release_x.x.x.bin
+
