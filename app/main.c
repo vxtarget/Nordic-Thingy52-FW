@@ -155,8 +155,8 @@
 #define MAX_BATTERY_LEVEL               100                                         /**< Maximum battery level as returned by the simulated measurement function. */
 #define BATTERY_LEVEL_INCREMENT         1                                           /**< Value by which the battery level is incremented/decremented for each call to the simulated measurement function. */
 
-#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(11.25, UNIT_1_25_MS)             /**< Minimum acceptable connection interval (10 ms). */
-#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(11.25, UNIT_1_25_MS)            /**< Maximum acceptable connection interval (100 ms) */
+#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(7.5, UNIT_1_25_MS)             /**< Minimum acceptable connection interval (10 ms). */
+#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(400, UNIT_1_25_MS)            /**< Maximum acceptable connection interval (100 ms) */
 #define SLAVE_LATENCY                   0                                           /**< Slave latency. */
 #define CONN_SUP_TIMEOUT                MSEC_TO_UNITS(4000, UNIT_10_MS)             /**< Connection supervisory timeout (4 seconds). */
 #define FIRST_CONN_PARAMS_UPDATE_DELAY  APP_TIMER_TICKS(100)                       /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
@@ -1944,11 +1944,15 @@ static void advertising_init(void)
     ble_advertising_conn_cfg_tag_set(&m_advertising, APP_BLE_CONN_CFG_TAG);
 }
 
+uint32_t get_rtc_counter(void)
+{
+    return NRF_RTC1->COUNTER;
+}
 /**@brief Function for initializing the nrf log module.
  */
 static void log_init(void)
 {
-    ret_code_t err_code = NRF_LOG_INIT(NULL);
+    ret_code_t err_code = NRF_LOG_INIT(get_rtc_counter);
     APP_ERROR_CHECK(err_code);
 
     NRF_LOG_DEFAULT_BACKENDS_INIT();

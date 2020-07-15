@@ -70,6 +70,8 @@
 
 static bool multi_package=false;
 
+static uint8_t i2c_buf_dma[255];
+
 //NFC buffer
 uint8_t nfc_apdu[253];
 uint32_t nfc_apdu_len=0;
@@ -209,14 +211,16 @@ bool i2c_master_write(uint8_t *buf,uint32_t len)
     while(len > 255)
     {
         while(nrf_drv_twi_is_busy(&m_twi_master));
-        err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,buf+offset,255,true);
+        memcpy(i2c_buf_dma,buf+offset,255);
+        err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,i2c_buf_dma,255,true);
         offset += 255;
         len -= 255;
     }
     if(len)
     {    
         while(nrf_drv_twi_is_busy(&m_twi_master));
-        err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,buf+offset,len,false); 
+        memcpy(i2c_buf_dma,buf+offset,len);
+        err_code = nrf_drv_twi_tx(&m_twi_master,SLAVE_ADDR,i2c_buf_dma,len,false); 
     }            
     NRF_LOG_INFO("twi send data finish");
     if(NRF_SUCCESS != err_code)
