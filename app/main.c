@@ -107,8 +107,8 @@
 #define MANUFACTURER_ID                 0x55AA55AA55                                /**< DUMMY Manufacturer ID. Will be passed to Device Information Service. You shall use the ID for your Company*/
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
-#define FW_REVISION                     "s132_nrf52_7.0.1"
-#define SW_REVISION                     "1.1.3"
+#define FW_REVISION                     "1.1.4"
+#define SW_REVISION                     "s132_nrf52_7.0.1"
 
 #define APDU_TAG_BLE                    0x44
 
@@ -765,7 +765,7 @@ void m_1s_timeout_hander(void * p_context)
 
         bak_buff[0] = UART_CMD_BLE_VERSION;
         bak_buff[1] = 0x05;
-        memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
+        memcpy(&bak_buff[2],FW_REVISION,sizeof(FW_REVISION));
         send_stm_data(bak_buff,bak_buff[1]);
         
         bak_buff[0] = UART_CMD_BLE_CON_STA;
@@ -2326,7 +2326,7 @@ static void rsp_st_uart_cmd(void *p_event_data,uint16_t event_size)
     {
 		bak_buff[0] = UART_CMD_BLE_VERSION;
         bak_buff[1] = 0x05;
-        memcpy(&bak_buff[2],SW_REVISION,sizeof(SW_REVISION));
+        memcpy(&bak_buff[2],FW_REVISION,sizeof(FW_REVISION));
         send_stm_data(bak_buff,bak_buff[1]);
 		trans_info_flag = DEF_RESP;
 	}else if(trans_info_flag == RESPONESE_BAT_UART)
