@@ -93,6 +93,7 @@
 #include "nrf_fstorage_sd.h"
 #include "nrf_fstorage.h"
 #include "fds_internal_defs.h"
+#include "power_manage.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -101,13 +102,13 @@
 #include "nrf_uarte.h"
 #endif
 
-#define MANUFACTURER_NAME               "Bixin"                                     /**< Manufacturer. Will be passed to Device Information Service. */
-#define ADV_HEAD_NAME                   "K"
-#define MODEL_NUMBER                    "one"                                       /**< Model Number string. Will be passed to Device Information Service. */
+#define MANUFACTURER_NAME               "OneKey"                                     /**< Manufacturer. Will be passed to Device Information Service. */
+#define ADV_HEAD_NAME                   "T"
+#define MODEL_NUMBER                    "two"                                       /**< Model Number string. Will be passed to Device Information Service. */
 #define MANUFACTURER_ID                 0x55AA55AA55                                /**< DUMMY Manufacturer ID. Will be passed to Device Information Service. You shall use the ID for your Company*/
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
-#define FW_REVISION                     "1.2.2"
+#define FW_REVISION                     "1.0.0"
 #define SW_REVISION                     "s132_nrf52_7.0.1"
 
 #define APDU_TAG_BLE                    0x44
@@ -276,15 +277,11 @@ static uint8_t mac_ascii[12];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 static char ble_adv_name[ADV_NAME_LENGTH];
 
-static nrf_saadc_value_t adc_buf[2];
-static uint16_t          m_batt_lvl_in_milli_volts=0; //!< Current battery level.
-static uint16_t          m_last_volts=0;
-static uint8_t           bat_level_to_st=0xff;
-static uint8_t           bat_level_flag=0;
-static uint8_t 			 read_flag=0;
-static uint8_t           backup_bat_level=0xff;
-static uint8_t           usb_ins_flag=0;
-static uint16_t          count_usb_ins=0;
+
+static uint8_t	bat_level_to_st=0xff;
+static uint8_t	bat_level_flag=0;
+static uint8_t	read_flag=0;
+static uint8_t	backup_bat_level=0xff;
 
 #ifdef BOND_ENABLE
 static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
@@ -318,7 +315,6 @@ static uint8_t calcXor(uint8_t *buf, uint8_t len);
 static void advertising_start(void);
 static void advertising_stop(void);
 static void idle_state_handle(void);
-static void adc_configure(void);
 
 /* Dummy data to write to flash. */
 static uint32_t m_data2          = 0xBADC0FFE;
@@ -329,6 +325,7 @@ static uint8_t bond_check_key_flag = INIT_VALUE;
 static uint8_t rcv_head_flag = 0;
 static uint8_t ble_status_flag = 0;
        uint8_t ctl_channel_flag = 0;
+static uint8_t power_percent=0;
 
 #ifdef SCHED_ENABLE
 static ringbuffer_t m_ble_fifo;
@@ -531,35 +528,7 @@ NRF_SDH_STATE_OBSERVER(m_buttonless_dfu_state_obs, 0) =
 {
     .handler = buttonless_dfu_sdh_state_observer,
 };
-static uint8_t calc_bat_level(uint16_t mv_value)
-{
-	uint8_t percentage_batt_level;
-	uint8_t bat_level;
-	
-	percentage_batt_level = battery_level_in_percent(mv_value);
-	                
-    switch(percentage_batt_level)
-    {
-        case 100:
-            bat_level = 4;
-            break;
-        case 75:
-            bat_level = 3;
-            break;
-        case 50:
-            bat_level = 2;
-            break;
-        case 25:
-            bat_level = 1;
-            break;
-        case 0:
-            bat_level = 0;
-            break;
-        default:
-            break;
-    }
-	return bat_level;
-}
+
 /**@brief Function for assert macro callback.
  *
  * @details This function will be called in case of an assert in the SoftDevice.
@@ -576,167 +545,9 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }                                             /**< Structure used to identify the battery service. */
 
-static void saadc_event_handler(nrf_drv_saadc_evt_t const * p_evt)
-{
-	static uint16_t charge_time=0;
-	static uint8_t  power_change_flag=0;
-	static uint8_t  bk_level=0;
-	
-    if (p_evt->type == NRF_DRV_SAADC_EVT_DONE)
-    {
-        nrf_saadc_value_t adc_result;
-       
-        uint32_t err_code;        
-        
-        adc_result = p_evt->data.done.p_buffer[0];
-        if (adc_result > 1024)
-        {
-            adc_result = 1024;
-        }        
-		usb_ins_flag = nrf_gpio_pin_read(USB_INS_PIN);
-		if(usb_ins_flag)
-		{
-			NRF_LOG_INFO("Usb charge mode.");
-		}
-		
-        err_code = nrf_drv_saadc_buffer_convert(p_evt->data.done.p_buffer,1);
-        APP_ERROR_CHECK(err_code);
-        m_batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);		
-		NRF_LOG_INFO("m_batt_lvl_in_milli_volts is %u mV",m_batt_lvl_in_milli_volts);
-
-        if(m_last_volts == 0)
-        {
-        	NRF_LOG_INFO("m_last_volts----0");        	
-	        if(m_batt_lvl_in_milli_volts> 2000 && m_batt_lvl_in_milli_volts<3500)
-	        {
-            	m_last_volts = m_batt_lvl_in_milli_volts;
-            	NRF_LOG_INFO("-2 voltage is   %u mV",m_batt_lvl_in_milli_volts);
-            }else
-            {
-            	NRF_LOG_INFO("-3 voltage is 0 mV");
-            	m_last_volts = 0;
-            	usb_ins_flag = ERROR_STA;
-            }
-            if(usb_ins_flag == USB_CHARGE)
-	        {        				
-	        	m_batt_lvl_in_milli_volts -= 100;
-	        	NRF_LOG_INFO("-1 voltage is  %u mV",m_batt_lvl_in_milli_volts);
-	        }
-            
-        }
-        if(usb_ins_flag == USB_CHARGE)
-        {        			
-        	if(m_batt_lvl_in_milli_volts > 2000 && m_batt_lvl_in_milli_volts < 3500)
-        	{
-        		m_batt_lvl_in_milli_volts -= 100;
-        	}else
-        	{
-				m_batt_lvl_in_milli_volts = m_last_volts;
-        	}
-        	
-			if(m_batt_lvl_in_milli_volts > m_last_volts)
-            {
-                m_last_volts = m_batt_lvl_in_milli_volts;
-            }
-			if(bat_level_to_st == 0xFF)
-			{
-				m_last_volts -=168;
-				bat_level_to_st = calc_bat_level(m_last_volts);	
-			}	
-
-			if(power_change_flag == 0)
-			{
-				power_change_flag =1;
-			}
-			NRF_LOG_INFO("charge adc is %u mV",m_last_volts);
-			NRF_LOG_INFO("bat_level_to_st is %d",bat_level_to_st);
-			count_usb_ins++;
-			if(0 == bat_level_to_st)
-			{
-				charge_time = 60; //5 minuts
-			}else if(1 == bat_level_to_st)
-			{
-				charge_time = 240; //20 minuts
-			}else if((2 == bat_level_to_st)||(3 == bat_level_to_st))
-			{
-				charge_time = 300; //25 minutes
-			}
-			
-			if(count_usb_ins>charge_time)  
-			{
-				count_usb_ins = 0;
-				if(bat_level_to_st<4)
-				{
-					NRF_LOG_INFO("increase level");
-					bat_level_to_st +=1;
-				}
-			}		
-        }
-		else if(usb_ins_flag == NO_CHARGE)
-        {   
-        	count_usb_ins = 0;
-
-			if(power_change_flag == 1)
-			{
-				m_last_volts = m_batt_lvl_in_milli_volts;
-			}
-			else
-			{
-				if(m_batt_lvl_in_milli_volts < 3000)
-	            {
-					m_last_volts = m_batt_lvl_in_milli_volts;
-	            }else if(m_batt_lvl_in_milli_volts < m_last_volts)
-	            {
-	            	if(m_last_volts - m_batt_lvl_in_milli_volts <40)
-	            	{
-	                	m_last_volts = m_batt_lvl_in_milli_volts;
-	                }
-	            }
-			}				
-			NRF_LOG_INFO("no charge adc is %u mV",m_last_volts);
-			NRF_LOG_INFO("m_batt_lvl_in_milli_volts %u mV",m_batt_lvl_in_milli_volts);
-			
-			if(power_change_flag == 1)
-			{
-				bk_level = calc_bat_level(m_last_volts);
-				NRF_LOG_INFO("bk_level is %u\n",bk_level);
-				if(bk_level <bat_level_to_st)
-				{
-					bat_level_to_st = bk_level;
-					NRF_LOG_INFO("power change bat_level_to_st is %u",bat_level_to_st);
-					power_change_flag = 0;
-				}
-			}else 
-			{
-				bat_level_to_st = calc_bat_level(m_last_volts);	
-				NRF_LOG_INFO("bat_level_to_st is %u",bat_level_to_st);
-			}												        
-        }
-		
-        err_code = ble_bas_battery_level_update(&m_bas,battery_level_in_percent(m_last_volts),BLE_CONN_HANDLE_ALL);
-        if((err_code != NRF_SUCCESS)&&
-            (err_code != NRF_ERROR_INVALID_STATE)&&
-            (err_code != NRF_ERROR_RESOURCES)&&
-            (err_code != NRF_ERROR_BUSY)&&
-            (err_code != BLE_ERROR_GATTS_SYS_ATTR_MISSING)
-          )
-        {
-            APP_ERROR_HANDLER(err_code);
-        }
-        
-        nrf_drv_saadc_uninit();
-		NRF_SAADC->INTENCLR = (SAADC_INTENCLR_END_Clear<<SAADC_INTENCLR_END_Pos) ;
-		NVIC_ClearPendingIRQ(SAADC_IRQn);
-    }
-}
-
 void battery_level_meas_timeout_handler(void *p_context)
 {
     UNUSED_PARAMETER(p_context);
-    adc_configure();
-    ret_code_t err_code;
-    err_code =  nrf_drv_saadc_sample();
-    APP_ERROR_CHECK(err_code);
 }
 
 #ifdef UART_TRANS
@@ -796,148 +607,11 @@ void m_100ms_timeout_hander(void * p_context)
 }
 void m_1s_timeout_hander(void * p_context)
 {
-    static uint8_t long_termflag = 0;
-    static uint8_t flag_ble=0;
-	static uint8_t back_storage_value = 0;
-	
     UNUSED_PARAMETER(p_context);
 
     one_second_counter++;
-    
     //feed wdt
     nrf_drv_wdt_channel_feed(m_channel_id);
-
-	//check usb insert	
-	usb_ins_flag = nrf_gpio_pin_read(USB_INS_PIN);
-	
-#ifdef UART_TRANS
-    if(0 == trans_info_flag)
-    {
-        bak_buff[0] = UART_CMD_ADV_NAME;
-        bak_buff[1] = 0x12;
-        memcpy(&bak_buff[2],(uint8_t *)ble_adv_name,ADV_NAME_LENGTH);
-        send_stm_data(bak_buff,bak_buff[1]);
-
-        bak_buff[0] = UART_CMD_BLE_VERSION;
-        bak_buff[1] = 0x05;
-        memcpy(&bak_buff[2],FW_REVISION,sizeof(FW_REVISION));
-        send_stm_data(bak_buff,bak_buff[1]);
-        
-        bak_buff[0] = UART_CMD_BLE_CON_STA;
-        bak_buff[1] = 0x01;
-        bak_buff[2] = VALUE_DISCONNECT;
-        send_stm_data(bak_buff,bak_buff[1]);
-        trans_info_flag = 1;
-    }
-    if(bat_level_to_st != 0xff)
-    {
-        if(long_termflag == 0)
-        {
-            long_termflag = 1;
-            app_timer_stop(m_battery_timer_id);
-            app_timer_start(m_battery_timer_id, BATTERY_MEAS_LONG_INTERVAL, NULL);
-            NRF_LOG_INFO("Start long term time");
-        }
-    }
-    if((backup_bat_level != bat_level_to_st)||(long_termflag == 1))
-    {   
-    	NRF_LOG_INFO("backup_bat_level %d ",backup_bat_level);
-		NRF_LOG_INFO("bat_level_to_st %d ",bat_level_to_st);
-		if(long_termflag == 1)
-		{
-			long_termflag =2;
-		}
-    	if(USB_CHARGE == usb_ins_flag)
-    	{    		
-    		if(backup_bat_level != 0xFF && bat_level_to_st != 0xFF)
-			{
-				backup_bat_level = (bat_level_to_st-backup_bat_level>1)?(++backup_bat_level):bat_level_to_st;
-    		}else
-    		{
-    			if(bat_level_to_st == 0xff)
-    			{
-					bat_level_to_st = backup_bat_level;
-    			}else
-    			{
-					backup_bat_level = bat_level_to_st;
-				}
-			}
-			NRF_LOG_INFO("usb insert %d \n",backup_bat_level);
-		}else if(NO_CHARGE == usb_ins_flag)
-		{	
-			if(backup_bat_level != 0xFF)
-			{
-				if(backup_bat_level>bat_level_to_st)
-				{
-					backup_bat_level = (backup_bat_level-bat_level_to_st>1)?(--backup_bat_level):bat_level_to_st;
-				}else if(backup_bat_level<bat_level_to_st)
-				{					
-					if((bat_level_to_st - backup_bat_level)>=2)
-					{
-						backup_bat_level = bat_level_to_st;
-					}else
-					{
-						bat_level_to_st = backup_bat_level;
-					}
-				}
-			}else
-			{
-				backup_bat_level = bat_level_to_st;
-				NRF_LOG_INFO("first init",bat_level_to_st);
-			}
-			NRF_LOG_INFO("no charge %d \n",backup_bat_level);
-		}
-        bak_buff[0] = UART_CMD_BAT_PERCENT;
-        bak_buff[1] = 0x01;
-        bak_buff[2] = backup_bat_level;
-        send_stm_data(bak_buff,bak_buff[1]);
-		if(bat_level_flag == 1)
-		{
-			if(back_storage_value != backup_bat_level)
-			{
-				back_storage_value = backup_bat_level;
-				bat_level_flag = 2;			
-			}
-		}else if(bat_level_flag == 0)
-		{
-			bat_level_flag = 1;
-		}
-		NRF_LOG_INFO("bat_level_flag is %d\n",bat_level_flag);
-    }
-
-	if(one_second_counter == 1 && flag_ble == 0)
-	{
-		flag_ble = 1;
-		bak_buff[0] = UART_CMD_CTL_BLE;
-        bak_buff[1] = 0x01;
-        bak_buff[2] = ((ble_status_flag-1)^1);
-		send_stm_data(bak_buff,bak_buff[1]);
-	}
-#endif
-
-    if(one_second_counter >=20)
-    {
-        one_second_counter=0;
-    }
-}
-
-/**@brief Function for configuring ADC to do battery level conversion.
- */
-void adc_configure(void)
-{
-    ret_code_t err_code = nrf_drv_saadc_init(NULL, saadc_event_handler);
-    APP_ERROR_CHECK(err_code);
-
-    nrf_saadc_channel_config_t config =
-        NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN0);
-    err_code = nrf_drv_saadc_channel_init(0, &config);
-    APP_ERROR_CHECK(err_code);
-
-    err_code = nrf_drv_saadc_buffer_convert(&adc_buf[0], 1);
-    APP_ERROR_CHECK(err_code);
-
-    err_code = nrf_drv_saadc_buffer_convert(&adc_buf[1], 1);
-    APP_ERROR_CHECK(err_code);
 }
 
 /**@brief Function for handling the Battery Service events.
@@ -2263,7 +1937,9 @@ static void system_init()
     gpio_init();
 #ifdef UART_TRANS    
     usr_uart_init();
-#endif    
+#endif  
+    ret_code_t err_code = usr_power_init();
+    APP_ERROR_CHECK(err_code);
 }
 
 /**@brief Function for starting advertising.
@@ -2547,10 +2223,10 @@ static void scheduler_init(void)
 }
 static void main_loop(void)
 {   
-    app_sched_event_put(NULL,NULL,ble_ctl_process);
+	app_sched_event_put(NULL,NULL,ble_ctl_process);
 	app_sched_event_put(NULL,NULL,rsp_st_uart_cmd);
 	app_sched_event_put(NULL,NULL,manage_bat_level);
-    app_sched_event_put(NULL,NULL,nfc_poll);
+	app_sched_event_put(NULL,NULL,nfc_poll);
 }
 
 int main(void)
@@ -2561,9 +2237,9 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 #endif
     // Initialize.
+    log_init();
     system_init();
     scheduler_init();
-    log_init();
 
     timers_init();
 #ifdef DEV_BSP
