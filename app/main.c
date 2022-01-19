@@ -93,6 +93,7 @@
 #include "nrf_fstorage_sd.h"
 #include "nrf_fstorage.h"
 #include "fds_internal_defs.h"
+#include "power_manage.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -107,7 +108,7 @@
 #define MANUFACTURER_ID                 0x55AA55AA55                                /**< DUMMY Manufacturer ID. Will be passed to Device Information Service. You shall use the ID for your Company*/
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
-#define FW_REVISION                     "1.2.2"
+#define FW_REVISION                     "1.0.0"
 #define SW_REVISION                     "s132_nrf52_7.0.1"
 
 #define APDU_TAG_BLE                    0x44
@@ -324,6 +325,7 @@ static uint8_t bond_check_key_flag = INIT_VALUE;
 static uint8_t rcv_head_flag = 0;
 static uint8_t ble_status_flag = 0;
        uint8_t ctl_channel_flag = 0;
+static uint8_t power_percent=0;
 
 #ifdef SCHED_ENABLE
 static ringbuffer_t m_ble_fifo;
@@ -526,35 +528,7 @@ NRF_SDH_STATE_OBSERVER(m_buttonless_dfu_state_obs, 0) =
 {
     .handler = buttonless_dfu_sdh_state_observer,
 };
-static uint8_t calc_bat_level(uint16_t mv_value)
-{
-	uint8_t percentage_batt_level;
-	uint8_t bat_level;
-	
-	percentage_batt_level = battery_level_in_percent(mv_value);
-	                
-    switch(percentage_batt_level)
-    {
-        case 100:
-            bat_level = 4;
-            break;
-        case 75:
-            bat_level = 3;
-            break;
-        case 50:
-            bat_level = 2;
-            break;
-        case 25:
-            bat_level = 1;
-            break;
-        case 0:
-            bat_level = 0;
-            break;
-        default:
-            break;
-    }
-	return bat_level;
-}
+
 /**@brief Function for assert macro callback.
  *
  * @details This function will be called in case of an assert in the SoftDevice.
@@ -1963,7 +1937,9 @@ static void system_init()
     gpio_init();
 #ifdef UART_TRANS    
     usr_uart_init();
-#endif    
+#endif  
+    ret_code_t err_code = usr_power_init();
+    APP_ERROR_CHECK(err_code);
 }
 
 /**@brief Function for starting advertising.
@@ -2247,10 +2223,10 @@ static void scheduler_init(void)
 }
 static void main_loop(void)
 {   
-    app_sched_event_put(NULL,NULL,ble_ctl_process);
+	app_sched_event_put(NULL,NULL,ble_ctl_process);
 	app_sched_event_put(NULL,NULL,rsp_st_uart_cmd);
 	app_sched_event_put(NULL,NULL,manage_bat_level);
-    app_sched_event_put(NULL,NULL,nfc_poll);
+	app_sched_event_put(NULL,NULL,nfc_poll);
 }
 
 int main(void)
@@ -2261,9 +2237,9 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 #endif
     // Initialize.
+    log_init();
     system_init();
     scheduler_init();
-    log_init();
 
     timers_init();
 #ifdef DEV_BSP
