@@ -612,6 +612,14 @@ void m_1s_timeout_hander(void * p_context)
     one_second_counter++;
     //feed wdt
     nrf_drv_wdt_channel_feed(m_channel_id);
+
+    if(one_second_counter >=2)
+    {
+        axp216_read(AXP_CAP,1,&power_percent);
+        NRF_LOG_INFO("nnow_rest_CAP = %d",(power_percent & 0x7F));
+        axp_charging_monitor(); 
+        one_second_counter=0;
+    }
 }
 
 /**@brief Function for handling the Battery Service events.
