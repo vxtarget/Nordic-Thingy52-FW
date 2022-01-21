@@ -94,6 +94,7 @@
 #include "nrf_fstorage.h"
 #include "fds_internal_defs.h"
 #include "power_manage.h"
+#include "rtc_calendar.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -612,6 +613,14 @@ void m_1s_timeout_hander(void * p_context)
     one_second_counter++;
     //feed wdt
     nrf_drv_wdt_channel_feed(m_channel_id);
+
+    if(one_second_counter >=2)
+    {
+        axp216_read(AXP_CAP,1,&power_percent);
+        NRF_LOG_INFO("nnow_rest_CAP = %d",(power_percent & 0x7F));
+        axp_charging_monitor(); 
+        one_second_counter=0;
+    }
 }
 
 /**@brief Function for handling the Battery Service events.
@@ -1935,6 +1944,7 @@ static void system_init()
     create_ringBuffer(&m_ble_fifo,data_recived_buf,sizeof(data_recived_buf));
 #endif
     gpio_init();
+    usr_rtc_init();
 #ifdef UART_TRANS    
     usr_uart_init();
 #endif  
