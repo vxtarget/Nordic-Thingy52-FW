@@ -94,6 +94,7 @@
 #include "nrf_fstorage.h"
 #include "fds_internal_defs.h"
 #include "power_manage.h"
+#include "rtc_calendar.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -1943,6 +1944,7 @@ static void system_init()
     create_ringBuffer(&m_ble_fifo,data_recived_buf,sizeof(data_recived_buf));
 #endif
     gpio_init();
+    usr_rtc_init();
 #ifdef UART_TRANS    
     usr_uart_init();
 #endif  
