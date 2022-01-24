@@ -3,6 +3,7 @@
 
 static void rtc_evt_handler(nrf_drv_rtc_int_type_t interruptType);
 struct tm m_time;
+rtc_date_t rtc_date;
 
 volatile uint32_t m_timestamp = 1642758421;							
 
