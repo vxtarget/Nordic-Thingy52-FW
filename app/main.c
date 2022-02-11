@@ -611,8 +611,6 @@ void m_1s_timeout_hander(void * p_context)
     UNUSED_PARAMETER(p_context);
 
     one_second_counter++;
-    //feed wdt
-    nrf_drv_wdt_channel_feed(m_channel_id);
 
     if(one_second_counter >=2)
     {
@@ -2277,7 +2275,6 @@ int main(void)
     twi_master_init();
     nfc_init();
 
-    wdt_init();
     // Enter main loop.
     for (;;)
     {
