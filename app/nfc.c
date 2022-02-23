@@ -358,6 +358,11 @@ int nfc_init(void)
     return 0;
 }
 
+void nfc_disable(void)
+{
+    nfc_t4t_emulation_stop();
+}
+
 static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
 {
     static bool reading = false;
