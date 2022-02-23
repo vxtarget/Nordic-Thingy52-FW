@@ -24,8 +24,8 @@ static void utc_to_calendar(uint32_t timestamp)
     rtc_date.RTC_Minutes = tm_p->tm_min;
     rtc_date.RTC_Seconds = tm_p->tm_sec;
     
-    NRF_LOG_INFO("year-%d/month-%d/day-%d,weeday %d",rtc_date.RTC_Year, rtc_date.RTC_Month,rtc_date.RTC_Day,rtc_date.RTC_Weekday);
-    NRF_LOG_INFO("%d:%d:%d", rtc_date.RTC_Hours,rtc_date.RTC_Minutes, rtc_date.RTC_Seconds);
+    // NRF_LOG_INFO("year-%d/month-%d/day-%d,weeday %d",rtc_date.RTC_Year, rtc_date.RTC_Month,rtc_date.RTC_Day,rtc_date.RTC_Weekday);
+    // NRF_LOG_INFO("%d:%d:%d", rtc_date.RTC_Hours,rtc_date.RTC_Minutes, rtc_date.RTC_Seconds);
 }
 
 static void rtc_evt_handler(nrf_drv_rtc_int_type_t interruptType)
@@ -61,6 +61,11 @@ void usr_rtc_init(void)
     nrf_drv_rtc_tick_enable(&s_rtc_handle, true);
     // Power on rtc instance					
     nrf_drv_rtc_enable(&s_rtc_handle);									
+}
+
+void usr_rtc_tick_disable(void)
+{
+    nrf_drv_rtc_tick_disable(&s_rtc_handle);
 }
 
 void rtc_set_time(uint32_t timestampNow)
