@@ -52,6 +52,7 @@
 #include "app_fifo.h"
 #include "app_uart.h"
 #include "boards.h"
+#include "data_transmission.h"
 #include "nrf_drv_twi.h"
 #include "nfc_t4t_lib.h"
 #include "sdk_config.h"
@@ -70,7 +71,7 @@
 
 static bool multi_package=false;
 
-static uint8_t i2c_buf_dma[255];
+//static uint8_t i2c_buf_dma[255];
 
 //NFC buffer
 uint8_t nfc_apdu[253];
@@ -88,11 +89,12 @@ void apdu_command(const uint8_t *p_buf,uint32_t data_len);
 bool apdu_cmd =false;
 
 //TWI driver
-static volatile bool twi_xfer_done = false ;
-static uint8_t twi_xfer_dir = 0; //0-write 1-read
+//static volatile bool twi_xfer_done = false ;
+//static uint8_t twi_xfer_dir = 0; //0-write 1-read
 extern uint8_t ble_adv_switch_flag;
 extern uint8_t ctl_channel_flag;
 
+#if 0
 /**
  * @brief TWI master instance.
  *
@@ -119,7 +121,7 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
                     {
                         read_state = READSTATE_READ_INFO;
                         data_recived_len= 3;
-                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,6);//read id+len bytes len
+                        //nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,6);//read id+len bytes len
                     }
                 }
                 else if(read_state == READSTATE_READ_INFO)
@@ -130,7 +132,7 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
                     if(len > 0)
                     {
                         read_state = READSTATE_READ_DATA;
-                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,len);//read id+len bytes len
+                        //nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,len);//read id+len bytes len
                         data_len-=len;
                         data_recived_len+=len;
                     }
@@ -145,7 +147,7 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
                     len=data_len>255?255:data_len;
                     if(len>0)
                     {
-                        nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,len);//read id+len bytes len
+                        //nrf_drv_twi_rx(&m_twi_master,SLAVE_ADDR,data_recived_buf+data_recived_len,len);//read id+len bytes len
                         data_len-=len;
                         data_recived_len+=len;
                     }
@@ -169,7 +171,8 @@ static void twi_handler(nrf_drv_twi_evt_t const * p_event, void *p_context )
             break;
     }
 }
-
+#endif
+#if 0
 /**
  * @brief Initialize the master TWI.
  *
@@ -265,7 +268,7 @@ bool i2c_master_read(void)
     }
     return true;
 }
-
+#endif
 /**
  * @brief Callback function for handling NFC events.
  */
@@ -329,7 +332,7 @@ static void nfc_callback(void          * context,
                 nfc_apdu_len=dataLength;
                 apdu_cmd = true;
                 nfc_multi_packet=true;
-                //i2c_master_write_ex((uint8_t*)data,dataLength,true);
+                usr_spi_write((uint8_t*)data,dataLength);
 #ifdef DEV_BSP
                 bsp_board_led_on(BSP_BOARD_LED_2);
 #endif
@@ -371,7 +374,7 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
     {
         multi_package=false;
         apdu_cmd = true;
-        //i2c_master_write_ex((uint8_t*)p_buf,data_len,false);
+        usr_spi_write((uint8_t*)p_buf,data_len);
         nfc_data_out_len = 2;
         memcpy(nfc_data_out_buf,"\x90\x00",nfc_data_out_len);  
     }
@@ -382,7 +385,7 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
             data_recived_flag = false;
             apdu_cmd = true;
 			reading = false;
-            //i2c_master_write_ex((uint8_t*)p_buf,data_len,false);
+            usr_spi_write((uint8_t*)p_buf,data_len);
             nfc_data_out_len = 2;
             memcpy(nfc_data_out_buf,"\x90\x00",nfc_data_out_len);    
         }
@@ -393,7 +396,7 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
             {
                 if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==1)//can read
                 {
-                    i2c_master_read();
+                    //i2c_master_read();
                     reading = true;
                 }
                 nfc_data_out_len = 3;
@@ -446,7 +449,7 @@ void nfc_poll(void *p_event_data,uint16_t event_size)
     if(apdu_cmd == true)
     {
         apdu_cmd = false;
-        i2c_master_write_ex(nfc_apdu,nfc_apdu_len,nfc_multi_packet);
+        usr_spi_write(nfc_apdu,nfc_apdu_len);
     }
 }
 /** @} */
