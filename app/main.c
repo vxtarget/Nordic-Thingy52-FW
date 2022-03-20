@@ -544,6 +544,30 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }                                             /**< Structure used to identify the battery service. */
 
+static void enter_low_power_mode(void)
+{
+    nrf_delay_ms(3000);
+
+    advertising_stop();
+
+    nfc_disable();
+
+    app_timer_stop(m_battery_timer_id);
+    app_timer_stop(m_100ms_timer_id);
+    app_timer_stop(m_1s_timer_id);
+
+    app_uart_close();
+    axp_disable();
+    usr_spi_disable();
+    usr_rtc_tick_disable();
+    gpio_uninit();
+
+    for(;;){
+        
+        // sd_power_system_off(); //stop mode rtc stoped
+        nrf_pwr_mgmt_run();
+    }
+}
 void battery_level_meas_timeout_handler(void *p_context)
 {
     UNUSED_PARAMETER(p_context);
