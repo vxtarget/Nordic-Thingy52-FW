@@ -300,8 +300,6 @@ static ble_uuid_t   m_adv_uuids[] =                                             
 static void advertising_start(void);
 #ifdef SCHED_ENABLE
 static void twi_write_data(void *p_event_data,uint16_t event_size);
-#else
-static void twi_write_data(void);
 #endif
 static void twi_read_data(void);
 #ifdef UART_TRANS
@@ -2272,7 +2270,6 @@ int main(void)
 
     ctl_advertising();	    
 	
-    twi_master_init();
     nfc_init();
 
     // Enter main loop.
