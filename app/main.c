@@ -324,7 +324,7 @@ static uint8_t bond_check_key_flag = INIT_VALUE;
 static uint8_t rcv_head_flag = 0;
 static uint8_t ble_status_flag = 0;
        uint8_t ctl_channel_flag = 0;
-static uint8_t power_percent=0;
+static uint8_t battery_percent=0;
 
 #ifdef SCHED_ENABLE
 static ringbuffer_t m_ble_fifo;
@@ -570,7 +570,20 @@ static void enter_low_power_mode(void)
 }
 void battery_level_meas_timeout_handler(void *p_context)
 {
+    ret_code_t err_code;
+
     UNUSED_PARAMETER(p_context);
+    battery_percent = get_battery_percent();
+
+    err_code = ble_bas_battery_level_update(&m_bas, battery_percent, BLE_CONN_HANDLE_ALL);
+    if ((err_code != NRF_SUCCESS) &&
+        (err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != BLE_ERROR_GATTS_SYS_ATTR_MISSING)
+       )
+    {
+        APP_ERROR_HANDLER(err_code);
+    }
 }
 
 #ifdef UART_TRANS
