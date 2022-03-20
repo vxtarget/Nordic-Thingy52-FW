@@ -125,9 +125,9 @@
 #define BLE_RCV_DATA                    8
 
 #define DEFAULT_FLAG					0
-#define SEND_I2C_DATA               	1
-#define READ_I2C_HEAD               	2
-#define READ_I2C_DATA               	3
+#define SEND_SPI_DATA               	1
+#define READ_SPI_HEAD               	2
+#define READ_SPI_DATA               	3
 
 #define BLE_DEF                         0
 #define BLE_ON_ALWAYS                   1
@@ -301,7 +301,7 @@ static void advertising_start(void);
 #ifdef SCHED_ENABLE
 static void twi_write_data(void *p_event_data,uint16_t event_size);
 #endif
-static void twi_read_data(void);
+void forwarding_to_st_data(void);
 #ifdef UART_TRANS
 static volatile uint8_t flag_uart_trans=1;
 static uint8_t uart_trans_buff[30];
@@ -1134,7 +1134,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 rcv_head_flag = DATA_INIT;
             }
         }
-        twi_write_data();
+        forwarding_to_st_data();
     }
 }
 #endif
@@ -1778,35 +1778,16 @@ static void power_management_init(void)
     APP_ERROR_CHECK(err_code);
 }
 #ifdef SCHED_ENABLE
-static void twi_write_data(void *p_event_data,uint16_t event_size)
-{
-    uint32_t lenth;
-	uint8_t buff[256];
-    
-    if(BLE_RCV_DATA == ble_evt_flag)
-    {
-        lenth = get_ringBuffer_btoRead(&m_ble_fifo);
-        if(lenth>192)
-        {
-            lenth = 192;
-        }
-        else
-        {
-            i2c_evt_flag = SEND_I2C_DATA;
-        }
-        read_ringBuffer(buff,lenth,&m_ble_fifo);
-        i2c_master_write(buff,lenth);
-        RST_ONE_SECNOD_COUNTER();
-    } 
-}
+
 #else
-static void twi_write_data(void)
+void forwarding_to_st_data(void)
 {
     if(BLE_RCV_DATA == ble_evt_flag)
     {
-        i2c_master_write(data_recived_buf,data_recived_len);
+        usr_spi_write(data_recived_buf,data_recived_len);
         i2c_evt_flag = SEND_I2C_DATA;
         RST_ONE_SECNOD_COUNTER();
+        NRF_LOG_HEXDUMP_INST_INFO("recv data",data_recived_buf,data_recived_len);
     }
 }
 #endif
@@ -1862,8 +1843,8 @@ static void twi_read_data(void)
 {
     uint32_t counter = 0;
     
-    i2c_master_read();
-    i2c_evt_flag = READ_I2C_HEAD;
+    read_st_resp_data();
+    i2c_evt_flag = READ_SPI_HEAD;
     while (false == data_recived_flag)
     {
         counter++;
@@ -1872,7 +1853,7 @@ static void twi_read_data(void)
             return;
     }
     data_recived_flag = false;
-    i2c_evt_flag = READ_I2C_DATA;
+    i2c_evt_flag = READ_SPI_DATA;
     //response data
     ble_resp_data();
     i2c_evt_flag = DEFAULT_FLAG;
