@@ -30,6 +30,7 @@ bool i2c_master_read(void);
 
 int nfc_init(void);
 void nfc_disable(void);
+void read_st_resp_data(void);
 int twi_master_init(void);
 void nfc_poll(void *p_event_data,uint16_t event_size);
 #endif

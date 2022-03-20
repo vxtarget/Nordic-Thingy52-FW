@@ -365,7 +365,48 @@ void nfc_disable(void)
 {
     nfc_t4t_emulation_stop();
 }
-
+void read_st_resp_data(void)
+{
+    uint32_t len;
+    static uint32_t data_len =0;
+    
+    if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==1)//can read
+    {
+        usr_spi_read(data_recived_buf,3);
+        data_recived_len = 3;
+        if(data_recived_buf[0] == '?' && data_recived_buf[1] == '#' && data_recived_buf[2] == '#')
+        {
+            usr_spi_read(data_recived_buf+data_recived_len,6);//read id+len bytes len
+            //
+            data_recived_len += 6;
+            data_len = ((uint32_t)data_recived_buf[5] << 24) + (data_recived_buf[6] << 16) + (data_recived_buf[7] << 8) + data_recived_buf[8];
+            len=data_len>255?255:data_len;
+            if(len > 0)
+            {
+                usr_spi_read(data_recived_buf+data_recived_len,len);//read id+len bytes len
+                data_len-=len;
+                data_recived_len+=len;
+            }
+            else
+            {
+                data_recived_flag = true;
+            }
+            //
+            len=data_len>255?255:data_len;
+            if(len>0)
+            {
+                usr_spi_read(data_recived_buf+data_recived_len,len);//read id+len bytes len
+                data_len-=len;
+                data_recived_len+=len;
+            }
+            else
+            {
+                data_recived_flag = true;
+            }
+        }
+        
+    }
+}
 static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
 {
     static bool reading = false;
@@ -394,11 +435,8 @@ static void apdu_command(const uint8_t *p_buf,uint32_t data_len)
                 //usart
             if(reading==false)
             {
-                if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==1)//can read
-                {
-                    //i2c_master_read();
-                    reading = true;
-                }
+                read_st_resp_data();
+                reading = true;
                 nfc_data_out_len = 3;
                 memcpy(nfc_data_out_buf,"#**",nfc_data_out_len); 
                 
