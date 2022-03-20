@@ -33,7 +33,14 @@ extern void close_all_power(void);
 
 extern uint8_t get_battery_percent(void);
 
-//
+extern uint8_t get_irq_vbus_status(void);
+
+extern uint8_t get_irq_charge_status(void);
+
+extern uint8_t get_irq_low_battery(void);
+
+extern uint8_t get_irq_key_status(void);
+
 extern void test_dcdc(void);
 
 #endif
