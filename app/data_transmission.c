@@ -10,7 +10,7 @@ static nrfx_spim_xfer_desc_t     driver_spim_xfer;
 static uint8_t                  driver_spi_rx_buf[256];
 static uint8_t 					driver_spi_tx_buf[256];
 
-static void spi_event_handler(nrf_drv_spi_evt_t const *p_event, void *arg)
+static void spi_event_handler(nrfx_spim_evt_handler_t const *p_event, void *arg)
 {
 	if(p_event->type == NRFX_SPIM_EVENT_DONE){
 		spi_xfer_done = true;
@@ -27,7 +27,7 @@ void usr_spim_init(void)
     driver_spi_config.miso_pin = TOUCH_SPI2_MISO_IO;
     driver_spi_config.mosi_pin = TOUCH_SPI2_MOSI_IO;
     driver_spi_config.sck_pin = TOUCH_SPI2_CLK_IO;
-    driver_spi_config.frequency = SPIM_FREQUENCY_FREQUENCY_M2;
+    driver_spi_config.frequency = NRF_SPIM_FREQ_2M;
     err_code = nrfx_spim_init(&m_spim_master, &driver_spi_config, spi_event_handler, NULL);
     APP_ERROR_CHECK(err_code);
 }

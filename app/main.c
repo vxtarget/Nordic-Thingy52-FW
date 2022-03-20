@@ -95,6 +95,7 @@
 #include "fds_internal_defs.h"
 #include "power_manage.h"
 #include "rtc_calendar.h"
+#include "data_transmission.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -278,6 +279,7 @@ static uint8_t mac_ascii[12];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 static char ble_adv_name[ADV_NAME_LENGTH];
 
+extern rtc_date_t rtc_date;
 
 static uint8_t	bat_level_to_st=0xff;
 static uint8_t	bat_level_flag=0;
@@ -544,6 +546,11 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }                                             /**< Structure used to identify the battery service. */
 
+static void gpio_uninit(void)
+{
+    nrf_drv_gpiote_uninit();
+}
+
 static void enter_low_power_mode(void)
 {
     nrf_delay_ms(3000);
@@ -649,10 +656,7 @@ void m_1s_timeout_hander(void * p_context)
 
     if(one_second_counter >=2)
     {
-        axp216_read(AXP_CAP,1,&power_percent);
-        NRF_LOG_INFO("nnow_rest_CAP = %d",(power_percent & 0x7F));
-        axp_charging_monitor(); 
-        one_second_counter=0;
+       
     }
 }
 
@@ -1235,7 +1239,7 @@ static void application_timers_start(void)
     APP_ERROR_CHECK(err_code);
 
     // Start battery timer
-    err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
+    err_code = app_timer_start(m_battery_timer_id, BATTERY_MEAS_LONG_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
     
     // Start 100ms timer
@@ -1317,7 +1321,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
 #endif
             break; // BLE_ADV_EVT_FAST
 
-        case BLE_ADV_EVT_IDLE:
+        case BLE_ADV_EVT_IDLE: //协议栈上抛这个事件就回进入睡眠模式
             break; // BLE_ADV_EVT_IDLE
 
         default:
@@ -1785,7 +1789,7 @@ void forwarding_to_st_data(void)
     if(BLE_RCV_DATA == ble_evt_flag)
     {
         usr_spi_write(data_recived_buf,data_recived_len);
-        i2c_evt_flag = SEND_I2C_DATA;
+        i2c_evt_flag = SEND_SPI_DATA;
         RST_ONE_SECNOD_COUNTER();
         NRF_LOG_HEXDUMP_INST_INFO("recv data",data_recived_buf,data_recived_len);
     }
@@ -1839,7 +1843,7 @@ static void ble_resp_data(void)
        
     }
 }
-static void twi_read_data(void)
+static void phone_resp_data(void)
 {
     uint32_t counter = 0;
     
@@ -1882,9 +1886,36 @@ static void idle_state_handle(void)
         nrf_pwr_mgmt_run();
     }
 }
-void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
+void in_gpiote_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
-    twi_read_data();
+    switch(pin)
+    {
+        case SLAVE_SPI_RSP_IO:
+            if(action == NRF_GPIOTE_POLARITY_HITOLO){
+                phone_resp_data();
+            }            
+            break;
+        case POWER_IC_OK_IO:
+            if(action == NRF_GPIOTE_POLARITY_LOTOHI){
+                open_all_power();
+            }else if(action == NRF_GPIOTE_POLARITY_HITOLO){
+                close_all_power();
+                enter_low_power_mode();
+            }   
+            break;
+        case POWER_IC_IRQ_IO:
+            if(action == NRF_GPIOTE_POLARITY_HITOLO){
+                get_irq_vbus_status();
+                get_irq_charge_status();
+                get_irq_low_battery();
+                get_irq_key_status();
+
+            } 
+            break;
+        default:
+            break;
+    }
+    
 }
 
 static void gpiote_init(void)
@@ -1894,20 +1925,23 @@ static void gpiote_init(void)
     err_code = nrf_drv_gpiote_init();
     APP_ERROR_CHECK(err_code);
 
-    nrf_drv_gpiote_in_config_t in_config = NRFX_GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
+    nrf_drv_gpiote_in_config_t in_config = NRFX_GPIOTE_CONFIG_IN_SENSE_TOGGLE(false);
     in_config.pull = NRF_GPIO_PIN_PULLUP;
 
-    err_code = nrf_drv_gpiote_in_init(TWI_STATUS_GPIO, &in_config, in_pin_handler);
+    err_code = nrf_drv_gpiote_in_init(SLAVE_SPI_RSP_IO, &in_config, in_gpiote_handler);
+    APP_ERROR_CHECK(err_code);
+    err_code = nrf_drv_gpiote_in_init(POWER_IC_OK_IO, &in_config, in_gpiote_handler);
+    APP_ERROR_CHECK(err_code);
+    err_code = nrf_drv_gpiote_in_init(POWER_IC_IRQ_IO, &in_config, in_gpiote_handler);
     APP_ERROR_CHECK(err_code);
 
-    nrf_drv_gpiote_in_event_enable(TWI_STATUS_GPIO, true);
+    nrf_drv_gpiote_in_event_enable(SLAVE_SPI_RSP_IO, true);
+    nrf_drv_gpiote_in_event_enable(POWER_IC_OK_IO, true);
+    nrf_drv_gpiote_in_event_enable(POWER_IC_IRQ_IO, true);
 }
 
 static void gpio_init(void)
 {
-    //Detect USB insert status.
-    nrf_gpio_cfg_input(USB_INS_PIN,NRF_GPIO_PIN_NOPULL);
-    //nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
     gpiote_init();
 }
 #ifdef UART_TRANS
