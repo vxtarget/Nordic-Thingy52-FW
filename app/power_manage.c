@@ -44,7 +44,7 @@ ret_code_t open_all_power(void)
     return ret;
 }
 
-ret_code_t close_all_power(void)
+void close_all_power(void)
 {
     uint8_t val;
 

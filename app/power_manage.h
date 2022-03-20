@@ -29,7 +29,7 @@ extern ret_code_t usr_power_init(void);
 
 extern ret_code_t open_all_power(void);
 
-extern ret_code_t close_all_power(void);
+extern void close_all_power(void);
 
 extern uint8_t get_battery_percent(void);
 
