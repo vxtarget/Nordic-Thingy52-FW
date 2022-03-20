@@ -6,16 +6,6 @@
 
 static const nrf_drv_twi_t axp216_m_twi = NRF_DRV_TWI_INSTANCE(TWI_INSTANCE_ID);
 
-void axp216_twi_handler(nrf_drv_twi_evt_t const * p_event, void * p_context)
-{
-	switch (p_event->type){
-	case NRF_DRV_TWI_EVT_DONE:
-		break;
-	default:
-		break;
-	}
-}
-
 ret_code_t axp216_twi_master_init(void)
 {
     ret_code_t ret;
@@ -26,13 +16,12 @@ ret_code_t axp216_twi_master_init(void)
        .frequency          = NRF_DRV_TWI_FREQ_400K, 
        .interrupt_priority = APP_IRQ_PRIORITY_HIGH, 
        .clear_bus_init     = false
-    };
+    };		
 
-	nrf_gpio_cfg_input(AXP216_TWI_SCL_M, NRF_GPIO_PIN_PULLUP);
-	nrf_gpio_cfg_input(AXP216_TWI_SDA_M, NRF_GPIO_PIN_PULLUP);
-		
-	
-    ret = nrf_drv_twi_init(&axp216_m_twi, &axp216_twi_config, axp216_twi_handler, NULL);
+	nrf_gpio_cfg_output(AXP216_TWI_SCL_M);
+	nrf_gpio_cfg_input(AXP216_TWI_SDA_M,NRF_GPIO_PIN_PULLUP);
+
+    ret = nrf_drv_twi_init(&axp216_m_twi, &axp216_twi_config, NULL, NULL);
 
 	if (NRF_SUCCESS == ret)
     {
@@ -63,11 +52,13 @@ ret_code_t axp216_read( uint8_t readAddr, uint8_t byteNum , uint8_t *readData)
 	ret_code_t ret;
 	uint8_t temp_buf[2]={0};
 
+	temp_buf[0] = readAddr;
+
 	if(byteNum<=false || byteNum>1)
 		return false;
 
 	do{
-		ret = nrf_drv_twi_tx(&axp216_m_twi, AXP_DEVICES_ADDR, &readAddr, AXP_ADDRESS_LEN, false);
+		ret = nrf_drv_twi_tx(&axp216_m_twi, AXP_DEVICES_ADDR, temp_buf, AXP_ADDRESS_LEN, true);
 		if (NRF_SUCCESS != ret){
 			break;
 		}
@@ -76,7 +67,11 @@ ret_code_t axp216_read( uint8_t readAddr, uint8_t byteNum , uint8_t *readData)
 	}while (0);
 	
 	return ret;
-}	
+}
+void axp_disable(void)
+{
+	nrf_drv_twi_disable(&axp216_m_twi);
+}
 
 void axp_set_bits(int reg, uint8_t bit_mask)
 {
@@ -103,17 +98,19 @@ void  axp_clr_bits(int reg, uint8_t bit_mask)
 
 }
 
-void  axp_update(int reg, uint8_t val, uint8_t mask)
+void axp_update(int reg, uint8_t val, uint8_t mask)
 {
 	uint8_t reg_val;
 
-	axp216_read(reg, 1, &reg_val);
+	axp216_read(reg, 1, &reg_val);  
 
 	if ((reg_val & mask) != val) {
 		reg_val = (reg_val & ~mask) | val;
    		axp216_write(reg, reg_val);
 	 }
 }
+
+
 
 
 

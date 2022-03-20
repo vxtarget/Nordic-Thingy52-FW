@@ -95,6 +95,7 @@
 #include "fds_internal_defs.h"
 #include "power_manage.h"
 #include "rtc_calendar.h"
+#include "data_transmission.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -105,7 +106,7 @@
 
 #define MANUFACTURER_NAME               "OneKey"                                     /**< Manufacturer. Will be passed to Device Information Service. */
 #define ADV_HEAD_NAME                   "T"
-#define MODEL_NUMBER                    "two"                                       /**< Model Number string. Will be passed to Device Information Service. */
+#define MODEL_NUMBER                    "Touch"                                       /**< Model Number string. Will be passed to Device Information Service. */
 #define MANUFACTURER_ID                 0x55AA55AA55                                /**< DUMMY Manufacturer ID. Will be passed to Device Information Service. You shall use the ID for your Company*/
 #define ORG_UNIQUE_ID                   0xEEBBEE                                    /**< DUMMY Organisation Unique ID. Will be passed to Device Information Service. You shall use the Organisation Unique ID relevant for your Company */
 #define HW_REVISION                     "1.0.0"
@@ -125,9 +126,9 @@
 #define BLE_RCV_DATA                    8
 
 #define DEFAULT_FLAG					0
-#define SEND_I2C_DATA               	1
-#define READ_I2C_HEAD               	2
-#define READ_I2C_DATA               	3
+#define SEND_SPI_DATA               	1
+#define READ_SPI_HEAD               	2
+#define READ_SPI_DATA               	3
 
 #define BLE_DEF                         0
 #define BLE_ON_ALWAYS                   1
@@ -278,6 +279,7 @@ static uint8_t mac_ascii[12];
 static uint8_t mac[6]={0x42,0x13,0xc7,0x98,0x95,0x1a}; //Device MAC address
 static char ble_adv_name[ADV_NAME_LENGTH];
 
+extern rtc_date_t rtc_date;
 
 static uint8_t	bat_level_to_st=0xff;
 static uint8_t	bat_level_flag=0;
@@ -300,10 +302,8 @@ static ble_uuid_t   m_adv_uuids[] =                                             
 static void advertising_start(void);
 #ifdef SCHED_ENABLE
 static void twi_write_data(void *p_event_data,uint16_t event_size);
-#else
-static void twi_write_data(void);
 #endif
-static void twi_read_data(void);
+void forwarding_to_st_data(void);
 #ifdef UART_TRANS
 static volatile uint8_t flag_uart_trans=1;
 static uint8_t uart_trans_buff[30];
@@ -326,7 +326,7 @@ static uint8_t bond_check_key_flag = INIT_VALUE;
 static uint8_t rcv_head_flag = 0;
 static uint8_t ble_status_flag = 0;
        uint8_t ctl_channel_flag = 0;
-static uint8_t power_percent=0;
+static uint8_t battery_percent=0;
 
 #ifdef SCHED_ENABLE
 static ringbuffer_t m_ble_fifo;
@@ -546,9 +546,51 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }                                             /**< Structure used to identify the battery service. */
 
+static void gpio_uninit(void)
+{
+    nrf_drv_gpiote_uninit();
+}
+
+static void enter_low_power_mode(void)
+{
+    nrf_delay_ms(3000);
+
+    advertising_stop();
+
+    nfc_disable();
+
+    app_timer_stop(m_battery_timer_id);
+    app_timer_stop(m_100ms_timer_id);
+    app_timer_stop(m_1s_timer_id);
+
+    app_uart_close();
+    axp_disable();
+    usr_spi_disable();
+    usr_rtc_tick_disable();
+    gpio_uninit();
+
+    for(;;){
+        
+        // sd_power_system_off(); //stop mode rtc stoped
+        nrf_pwr_mgmt_run();
+    }
+}
 void battery_level_meas_timeout_handler(void *p_context)
 {
+    ret_code_t err_code;
+
     UNUSED_PARAMETER(p_context);
+    battery_percent = get_battery_percent();
+
+    err_code = ble_bas_battery_level_update(&m_bas, battery_percent, BLE_CONN_HANDLE_ALL);
+    if ((err_code != NRF_SUCCESS) &&
+        (err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != BLE_ERROR_GATTS_SYS_ATTR_MISSING)
+       )
+    {
+        APP_ERROR_HANDLER(err_code);
+    }
 }
 
 #ifdef UART_TRANS
@@ -611,15 +653,10 @@ void m_1s_timeout_hander(void * p_context)
     UNUSED_PARAMETER(p_context);
 
     one_second_counter++;
-    //feed wdt
-    nrf_drv_wdt_channel_feed(m_channel_id);
 
     if(one_second_counter >=2)
     {
-        axp216_read(AXP_CAP,1,&power_percent);
-        NRF_LOG_INFO("nnow_rest_CAP = %d",(power_percent & 0x7F));
-        axp_charging_monitor(); 
-        one_second_counter=0;
+       
     }
 }
 
@@ -1101,7 +1138,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
                 rcv_head_flag = DATA_INIT;
             }
         }
-        twi_write_data();
+        forwarding_to_st_data();
     }
 }
 #endif
@@ -1202,7 +1239,7 @@ static void application_timers_start(void)
     APP_ERROR_CHECK(err_code);
 
     // Start battery timer
-    err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
+    err_code = app_timer_start(m_battery_timer_id, BATTERY_MEAS_LONG_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
     
     // Start 100ms timer
@@ -1284,7 +1321,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
 #endif
             break; // BLE_ADV_EVT_FAST
 
-        case BLE_ADV_EVT_IDLE:
+        case BLE_ADV_EVT_IDLE: //协议栈上抛这个事件就回进入睡眠模式
             break; // BLE_ADV_EVT_IDLE
 
         default:
@@ -1745,35 +1782,16 @@ static void power_management_init(void)
     APP_ERROR_CHECK(err_code);
 }
 #ifdef SCHED_ENABLE
-static void twi_write_data(void *p_event_data,uint16_t event_size)
-{
-    uint32_t lenth;
-	uint8_t buff[256];
-    
-    if(BLE_RCV_DATA == ble_evt_flag)
-    {
-        lenth = get_ringBuffer_btoRead(&m_ble_fifo);
-        if(lenth>192)
-        {
-            lenth = 192;
-        }
-        else
-        {
-            i2c_evt_flag = SEND_I2C_DATA;
-        }
-        read_ringBuffer(buff,lenth,&m_ble_fifo);
-        i2c_master_write(buff,lenth);
-        RST_ONE_SECNOD_COUNTER();
-    } 
-}
+
 #else
-static void twi_write_data(void)
+void forwarding_to_st_data(void)
 {
     if(BLE_RCV_DATA == ble_evt_flag)
     {
-        i2c_master_write(data_recived_buf,data_recived_len);
-        i2c_evt_flag = SEND_I2C_DATA;
+        usr_spi_write(data_recived_buf,data_recived_len);
+        i2c_evt_flag = SEND_SPI_DATA;
         RST_ONE_SECNOD_COUNTER();
+        NRF_LOG_HEXDUMP_INST_INFO("recv data",data_recived_buf,data_recived_len);
     }
 }
 #endif
@@ -1825,12 +1843,12 @@ static void ble_resp_data(void)
        
     }
 }
-static void twi_read_data(void)
+static void phone_resp_data(void)
 {
     uint32_t counter = 0;
     
-    i2c_master_read();
-    i2c_evt_flag = READ_I2C_HEAD;
+    read_st_resp_data();
+    i2c_evt_flag = READ_SPI_HEAD;
     while (false == data_recived_flag)
     {
         counter++;
@@ -1839,7 +1857,7 @@ static void twi_read_data(void)
             return;
     }
     data_recived_flag = false;
-    i2c_evt_flag = READ_I2C_DATA;
+    i2c_evt_flag = READ_SPI_DATA;
     //response data
     ble_resp_data();
     i2c_evt_flag = DEFAULT_FLAG;
@@ -1868,9 +1886,36 @@ static void idle_state_handle(void)
         nrf_pwr_mgmt_run();
     }
 }
-void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
+void in_gpiote_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
-    twi_read_data();
+    switch(pin)
+    {
+        case SLAVE_SPI_RSP_IO:
+            if(action == NRF_GPIOTE_POLARITY_HITOLO){
+                phone_resp_data();
+            }            
+            break;
+        case POWER_IC_OK_IO:
+            if(action == NRF_GPIOTE_POLARITY_LOTOHI){
+                open_all_power();
+            }else if(action == NRF_GPIOTE_POLARITY_HITOLO){
+                close_all_power();
+                enter_low_power_mode();
+            }   
+            break;
+        case POWER_IC_IRQ_IO:
+            if(action == NRF_GPIOTE_POLARITY_HITOLO){
+                get_irq_vbus_status();
+                get_irq_charge_status();
+                get_irq_low_battery();
+                get_irq_key_status();
+
+            } 
+            break;
+        default:
+            break;
+    }
+    
 }
 
 static void gpiote_init(void)
@@ -1880,20 +1925,23 @@ static void gpiote_init(void)
     err_code = nrf_drv_gpiote_init();
     APP_ERROR_CHECK(err_code);
 
-    nrf_drv_gpiote_in_config_t in_config = NRFX_GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
+    nrf_drv_gpiote_in_config_t in_config = NRFX_GPIOTE_CONFIG_IN_SENSE_TOGGLE(false);
     in_config.pull = NRF_GPIO_PIN_PULLUP;
 
-    err_code = nrf_drv_gpiote_in_init(TWI_STATUS_GPIO, &in_config, in_pin_handler);
+    err_code = nrf_drv_gpiote_in_init(SLAVE_SPI_RSP_IO, &in_config, in_gpiote_handler);
+    APP_ERROR_CHECK(err_code);
+    err_code = nrf_drv_gpiote_in_init(POWER_IC_OK_IO, &in_config, in_gpiote_handler);
+    APP_ERROR_CHECK(err_code);
+    err_code = nrf_drv_gpiote_in_init(POWER_IC_IRQ_IO, &in_config, in_gpiote_handler);
     APP_ERROR_CHECK(err_code);
 
-    nrf_drv_gpiote_in_event_enable(TWI_STATUS_GPIO, true);
+    nrf_drv_gpiote_in_event_enable(SLAVE_SPI_RSP_IO, true);
+    nrf_drv_gpiote_in_event_enable(POWER_IC_OK_IO, true);
+    nrf_drv_gpiote_in_event_enable(POWER_IC_IRQ_IO, true);
 }
 
 static void gpio_init(void)
 {
-    //Detect USB insert status.
-    nrf_gpio_cfg_input(USB_INS_PIN,NRF_GPIO_PIN_NOPULL);
-    //nrf_gpio_cfg_input(TWI_STATUS_GPIO,NRF_GPIO_PIN_PULLUP);
     gpiote_init();
 }
 #ifdef UART_TRANS
@@ -2078,20 +2126,6 @@ static void ctl_advertising(void)
     }
 }
 
-/**@brief Application main function.
- */
-static void wdt_init(void)
-{
-    uint32_t err_code = NRF_SUCCESS;
-
-    nrf_drv_wdt_config_t config = NRF_DRV_WDT_DEAFULT_CONFIG;
-    err_code = nrf_drv_wdt_init(&config, NULL);
-    APP_ERROR_CHECK(err_code);
-    err_code = nrf_drv_wdt_channel_alloc(&m_channel_id);
-    APP_ERROR_CHECK(err_code);
-    nrf_drv_wdt_enable();
-}
-
 static void rsp_st_uart_cmd(void *p_event_data,uint16_t event_size)
 {
 	if(RESPONESE_NAME_UART == trans_info_flag)
@@ -2274,10 +2308,8 @@ int main(void)
 
     ctl_advertising();	    
 	
-    twi_master_init();
     nfc_init();
 
-    wdt_init();
     // Enter main loop.
     for (;;)
     {

@@ -22,6 +22,7 @@ typedef struct{
 extern volatile uint32_t g_timestamp;
 
 extern void usr_rtc_init(void);
+extern void usr_rtc_tick_disable(void);
 extern void rtc_set_time(uint32_t timestampNow);
 extern uint32_t rtc_get_time(void);
 

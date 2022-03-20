@@ -101,7 +101,7 @@ extern "C" {
 #define USB_INS_PIN        7
 //TWI
 #define TWI_STATUS_GPIO 25
-#define MASTER_TWI_INST     0       //!< TWI interface used as a master accessing EEPROM memory.
+#define MASTER_TWI_INST     1       //!< TWI interface used as a master accessing EEPROM memory.
 #define TWI_SCL_M           27       //!< Master SCL pin.
 #define TWI_SDA_M           26       //!< Master SDA pin.
 #define SLAVE_ADDR 0x48

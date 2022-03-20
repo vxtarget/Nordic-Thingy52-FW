@@ -6,14 +6,17 @@
 #include "axp_mfd_216.h"
 #include "nrf_gpio.h"
 
-#define AXP216_TWI_SDA_M           	14
-#define AXP216_TWI_SCL_M           	15
-#define TWI_INSTANCE_ID    			0
+#define AXP216_TWI_SDA_M			14
+#define AXP216_TWI_SCL_M			15  
+
+#define POWER_IC_IRQ_IO				6
+#define POWER_IC_OK_IO				7
+#define POWER_IC_CHAG_IO			8
 
 #define	AXP_DEVICES_ADDR			0x34
 #define AXP_ADDRESS_LEN   			1
 
-#define TWI_INSTANCE_ID    			0      
+#define TWI_INSTANCE_ID    			1
 
 #define axp_debug					0	
 
@@ -21,7 +24,7 @@
 
 /*电池容量，mAh：根据实际电池容量来定义，对库仑计方法来说
 这个参数很重要，必须配置*/
-#define BATCAP				3000
+#define BATCAP				850
 
 /*初始化电池内阻，mΩ：一般在100~200之间，不过最好根据实际
 测试出来的确定，方法是打开打印信息，不接电池烧好固件后，
@@ -42,7 +45,7 @@
 		AXP:300~2550,100/step
 */
 /*充电电流，uA*/
-#define STACHGCUR			900*1000
+#define STACHGCUR			450*1000
 
 
 /*目标充电电压，mV*/
@@ -78,7 +81,7 @@
 /*
 	AXP:360\480\600\720
 */
-#define CHGCSTTIME			480
+#define CHGCSTTIME			360
 
 
 /*pek开机时间，ms*/
@@ -93,7 +96,7 @@
 	长于此时间是长按，发长按键irq：
 		AXP:1000/1500/2000/2500
 */
-#define PEKLONG				1500
+#define PEKLONG				2500
 /*pek长按关机使能*/
 /*
 	按power键超过关机时长硬件关机功能使能：
@@ -123,7 +126,7 @@
 	AXP内部温度过高硬件关机功能使能：
 		AXP:0-不关，1-关机
 */
-#define OTPOFFEN			0
+#define OTPOFFEN			1
 /* 充电电压限制使能*/
 /*
 	AXP:0-关闭，1-打开
@@ -149,7 +152,7 @@
 /*
 	AXP:500/900
 */
-#define USBCURLIM			0
+#define USBCURLIM			500
 /* usb 充电限流，mA，0为不限制*/
 /*
 	AXP:500/900
@@ -159,7 +162,7 @@
 /*
 	AXP:0-不唤醒，1-唤醒
 */
-#define IRQWAKEUP			0
+#define IRQWAKEUP			1
 /* N_VBUSEN PIN 功能控制*/
 /*
 	AXP:0-输出，驱动OTG升压模块，1-输入，控制VBUS通路
@@ -174,17 +177,17 @@
 /*
 	AXP:0-驱动马达，1-由充电功能控制
 */
-#define CHGLEDFUN			1//0   **
+#define CHGLEDFUN			1
 /* CHGLED LED 类型设置*/
 /*
 	AXP:0-充电时led长亮，1-充电时led闪烁
 */
-#define CHGLEDTYPE			1//0  **
+#define CHGLEDTYPE			0
 /* 电池总容量校正使能*/
 /*
 	AXP:0-关闭，1-打开
 */
-#define BATCAPCORRENT			1//0  **
+#define BATCAPCORRENT			1
 /* 充电完成后，充电输出使能*/
 /*
 	AXP:0-关闭，1-打开
@@ -197,7 +200,7 @@
 #define BATDET		1
 /* PMU重置使能*/
 /*
-	AXP:0-关闭，1-打开按电源键16秒重置PMU功能
+	AXP:0-关闭，1-打开 按电源键16秒重置PMU功能
 */
 #define PMURESET		0
 /*低电警告电压1，%*/
@@ -280,5 +283,7 @@ void axp_set_bits(int reg, uint8_t bit_mask);
 void  axp_clr_bits(int reg, uint8_t bit_mask);
 
 void  axp_update(int reg, uint8_t val, uint8_t mask);
+
+void axp_disable(void);
 
 #endif
