@@ -2098,20 +2098,6 @@ static void ctl_advertising(void)
     }
 }
 
-/**@brief Application main function.
- */
-static void wdt_init(void)
-{
-    uint32_t err_code = NRF_SUCCESS;
-
-    nrf_drv_wdt_config_t config = NRF_DRV_WDT_DEAFULT_CONFIG;
-    err_code = nrf_drv_wdt_init(&config, NULL);
-    APP_ERROR_CHECK(err_code);
-    err_code = nrf_drv_wdt_channel_alloc(&m_channel_id);
-    APP_ERROR_CHECK(err_code);
-    nrf_drv_wdt_enable();
-}
-
 static void rsp_st_uart_cmd(void *p_event_data,uint16_t event_size)
 {
 	if(RESPONESE_NAME_UART == trans_info_flag)
