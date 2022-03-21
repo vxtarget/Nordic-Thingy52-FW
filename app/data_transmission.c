@@ -10,7 +10,7 @@ static nrfx_spim_xfer_desc_t     driver_spim_xfer;
 static uint8_t                  driver_spi_rx_buf[256];
 static uint8_t 					driver_spi_tx_buf[256];
 
-static void spi_event_handler(nrfx_spim_evt_handler_t const *p_event, void *arg)
+static void spi_event_handler(nrf_drv_spi_evt_t const *p_event, void *arg)
 {
 	if(p_event->type == NRFX_SPIM_EVENT_DONE){
 		spi_xfer_done = true;
