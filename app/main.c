@@ -1993,9 +1993,10 @@ static void system_init()
 #endif
     gpio_init();
     usr_rtc_init();
-#ifdef UART_TRANS    
+    usr_spim_init();
+#ifdef UART_TRANS
     usr_uart_init();
-#endif  
+#endif
     ret_code_t err_code = usr_power_init();
     APP_ERROR_CHECK(err_code);
 }
