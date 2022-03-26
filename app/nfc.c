@@ -370,7 +370,7 @@ void read_st_resp_data(void)
     uint32_t len;
     static uint32_t data_len =0;
     
-    if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==1)//can read
+    if(nrf_gpio_pin_read(TWI_STATUS_GPIO)==0)//can read
     {
         usr_spi_read(data_recived_buf,3);
         data_recived_len = 3;

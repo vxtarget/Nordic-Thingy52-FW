@@ -27,7 +27,7 @@ void usr_spim_init(void)
     driver_spi_config.miso_pin = TOUCH_SPI2_MISO_IO;
     driver_spi_config.mosi_pin = TOUCH_SPI2_MOSI_IO;
     driver_spi_config.sck_pin = TOUCH_SPI2_CLK_IO;
-    driver_spi_config.frequency = NRF_SPIM_FREQ_2M;
+    driver_spi_config.frequency = NRF_SPIM_FREQ_4M;
     err_code = nrfx_spim_init(&m_spim_master, &driver_spi_config, spi_event_handler, NULL);
     APP_ERROR_CHECK(err_code);
 }
@@ -55,12 +55,11 @@ void usr_spi_write(uint8_t *p_buffer, uint32_t size)
 }
 void usr_spi_read(uint8_t *p_buffer, uint32_t size)
 {
-	driver_spim_xfer.tx_length   = size;  
+	driver_spim_xfer.tx_length   = 0;
 	driver_spim_xfer.p_tx_buffer = driver_spi_tx_buf;
 	driver_spim_xfer.rx_length   = size;
-	driver_spim_xfer.p_rx_buffer = driver_spi_rx_buf;
+	driver_spim_xfer.p_rx_buffer = p_buffer;
 	APP_ERROR_CHECK(nrfx_spim_xfer(&m_spim_master, &driver_spim_xfer, 0));
-	memcpy(p_buffer,driver_spi_rx_buf,size);
 }
 
 //Disable spi mode to enter low power mode

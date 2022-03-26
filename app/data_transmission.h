@@ -16,7 +16,7 @@
 #define TOUCH_SPI2_CSN_IO           18
 #define TOUCH_SPI2_CLK_IO           19
 
-#define SLAVE_SPI_RSP_IO            20
+#define SLAVE_SPI_RSP_IO            11
 
 #define SPI_INSTANCE                2
 

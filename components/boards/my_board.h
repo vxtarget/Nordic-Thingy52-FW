@@ -100,7 +100,7 @@ extern "C" {
 
 #define USB_INS_PIN        7
 //TWI
-#define TWI_STATUS_GPIO 25
+#define TWI_STATUS_GPIO     11
 #define MASTER_TWI_INST     1       //!< TWI interface used as a master accessing EEPROM memory.
 #define TWI_SCL_M           27       //!< Master SCL pin.
 #define TWI_SDA_M           26       //!< Master SDA pin.
@@ -113,8 +113,8 @@ extern "C" {
 
 //end HaoBTC
 
-#define RX_PIN_NUMBER  8
-#define TX_PIN_NUMBER  6
+#define RX_PIN_NUMBER  21
+#define TX_PIN_NUMBER  20
 #define CTS_PIN_NUMBER UART_PIN_DISCONNECTED
 #define RTS_PIN_NUMBER UART_PIN_DISCONNECTED
 #define HWFC           false

@@ -1891,7 +1891,7 @@ void in_gpiote_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
     switch(pin)
     {
         case SLAVE_SPI_RSP_IO:
-            if(action == NRF_GPIOTE_POLARITY_HITOLO){
+            if(action == NRF_GPIOTE_POLARITY_TOGGLE){
                 phone_resp_data();
             }            
             break;
